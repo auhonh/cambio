@@ -27,4 +27,3 @@ Options: `--bots 1-4`, `--difficulty easy|medium|hard`, `--seed N`, `--start` (s
 - Jump in if a card matches the top of the discard pile. Wrong guess = penalty card
 - Call Cambio to end the game after everyone gets one more turn. Lowest score wins
 
-Tests: `.venv/bin/python -m pytest`
