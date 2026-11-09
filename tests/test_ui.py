@@ -88,10 +88,23 @@ def test_right_click_jump_correct_and_wrong(gfx):
     assert len(g.hands[0]) == n + 1
 
 
-def test_tracker_toggle(gfx):
+def test_pause_freezes_game_and_resumes(gfx):
     screen, atlas, felt = gfx
-    s = GameScene(FakeApp(), 2, "medium", seed=3)
-    advance(s, felt, 1)
-    s.on_key(pygame.K_TAB)
+    app = FakeApp()
+    s = GameScene(app, 2, "medium", seed=3)
+    advance(s, felt, 2)
+    s.on_button("ready")
+    s.on_key(pygame.K_ESCAPE)
+    assert s.paused
+    n_events, t = len(s.g.events), s.t
+    advance(s, felt, 8)                              # bots must not act while paused
+    assert len(s.g.events) == n_events and s.t == t
     s.draw(screen, atlas, felt)
-    assert s.show_tracker
+    s.on_mouse((240, 129), 1)                        # RESUME button
+    assert not s.paused
+    s.on_key(pygame.K_ESCAPE)
+    s.on_key(pygame.K_ESCAPE)                        # esc again also resumes
+    assert not s.paused
+    s.on_key(pygame.K_ESCAPE)
+    s.on_mouse((240, 153), 1)                        # MAIN MENU button
+    assert getattr(app, "menu", False)

@@ -10,15 +10,17 @@ from .sprites import CARD_H, CARD_W, GOLD, Atlas, outline_surface
 
 LOGICAL_W, LOGICAL_H = 480, 270
 
-FELT = [(24, 74, 58), (28, 84, 64), (33, 94, 71), (28, 84, 64)]
+FELT = [(23, 72, 56), (25, 77, 60), (27, 82, 63), (29, 87, 66), (31, 92, 69), (33, 96, 72)]
 
 
 class Felt:
-    """Animated quantised-swirl background, a la Balatro's paint effect."""
-    FRAMES = 12
+    """Soft, slowly drifting swirl. Frames are cross-faded so nothing pops or flickers."""
+    FRAMES = 8
+    SPEED = 0.35  # frames per second
 
     def __init__(self, palette=FELT):
         w, h = LOGICAL_W // 4, LOGICAL_H // 4
+        n = len(palette)
         self.frames = []
         for f in range(self.FRAMES):
             t = f / self.FRAMES * math.tau
@@ -29,19 +31,25 @@ class Felt:
                     d = math.hypot(dx, dy)
                     a = math.atan2(dy, dx)
                     v = math.sin(d * 11 + a * 2 + t) + 0.5 * math.sin(dx * 9 - dy * 7 - t)
-                    s.set_at((x, y), palette[int((v + 1.5) / 3 * 4) % 4])
-            self.frames.append(pygame.transform.scale(s, (LOGICAL_W, LOGICAL_H)))
+                    s.set_at((x, y), palette[min(n - 1, int((v + 1.5) / 3 * n))])
+            self.frames.append(pygame.transform.smoothscale(s, (LOGICAL_W, LOGICAL_H)).convert())
         self.t = 0.0
 
     def update(self, dt):
         self.t += dt
 
     def draw(self, surf):
-        surf.blit(self.frames[int(self.t * 3) % self.FRAMES], (0, 0))
+        pos = self.t * self.SPEED
+        i = int(pos) % self.FRAMES
+        blend = pos - int(pos)
+        surf.blit(self.frames[i], (0, 0))
+        nxt = self.frames[(i + 1) % self.FRAMES]
+        nxt.set_alpha(int(blend * 255))
+        surf.blit(nxt, (0, 0))
 
 
 def make_overlay() -> pygame.Surface:
-    """Vignette + faint scanlines, baked once."""
+    """Soft vignette, baked once."""
     ov = pygame.Surface((LOGICAL_W, LOGICAL_H), pygame.SRCALPHA)
     vw, vh = LOGICAL_W // 4, LOGICAL_H // 4
     vig = pygame.Surface((vw, vh), pygame.SRCALPHA)
@@ -51,8 +59,6 @@ def make_overlay() -> pygame.Surface:
             a = max(0, min(150, int((d - 0.35) * 330)))
             vig.set_at((x, y), (6, 12, 14, a))
     ov.blit(pygame.transform.smoothscale(vig, (LOGICAL_W, LOGICAL_H)), (0, 0))
-    for y in range(0, LOGICAL_H, 2):
-        pygame.draw.line(ov, (0, 0, 0, 26), (0, y), (LOGICAL_W, y))
     return ov
 
 
@@ -113,7 +119,7 @@ class CardSprite:
             tilt = max(-1, min(1, (mouse[0] - self.x) / (CARD_W / 2))) * 7
         wob = math.sin(t * 1.1 + self.phase) * 1.1 if idle else 0
         self.tilt = smooth(self.tilt, tilt, 16, 1 / 60)
-        ang = self.rot + wob + self.tilt
+        ang = round(self.rot + wob + self.tilt)  # whole degrees: no shimmer
         y = self.y - self.lift + bob
         shadow = atlas.shadow
         if w != CARD_W:

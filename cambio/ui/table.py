@@ -1,4 +1,4 @@
-"""The game table scene: layout, input, bot pacing, log, tracker."""
+"""The game table scene: layout, input, bot pacing, log."""
 from __future__ import annotations
 
 import math
@@ -52,9 +52,9 @@ class Button:
 
 
 class GameScene:
-    def __init__(self, app, n_bots: int, level: str, seed=None, tracker: bool = True):
+    def __init__(self, app, n_bots: int, level: str, seed=None):
         self.app = app
-        self.n_bots, self.level, self.seed, self.tracker_enabled = n_bots, level, seed, tracker
+        self.n_bots, self.level, self.seed = n_bots, level, seed
         self.n = n_bots + 1
         self.g = Game(self.n, seed)
         self.rng = random.Random(seed)
@@ -71,8 +71,8 @@ class GameScene:
         self.jump_timers: dict[int, float] = {}
         self.sel: list[tuple[int, int]] = []
         self.shake = 0.0
-        self.show_tracker = False
         self.t = 0.0
+        self.paused = False
         self.last_current = -1
         self.mouse = (0, 0)
         self.hover = None
@@ -213,8 +213,21 @@ class GameScene:
     def try_jump(self, slot):
         self.submit(A.JumpIn(slot))
 
+    def pause_buttons(self):
+        return [Button("resume", "RESUME", (190, 120, 100, 18), GOLD),
+                Button("menu", "MAIN MENU", (190, 144, 100, 18))]
+
     def on_mouse(self, pos, button, shift=False):
         g = self.g
+        if self.paused:
+            if button == 1:
+                for b in self.pause_buttons():
+                    if b.rect.collidepoint(pos):
+                        if b.key == "resume":
+                            self.paused = False
+                        else:
+                            self.app.go_menu()
+            return
         for b in self.buttons():
             if b.rect.collidepoint(pos) and button == 1:
                 return self.on_button(b.key)
@@ -279,15 +292,16 @@ class GameScene:
         elif key == "keep":
             self.submit(A.QueenDecide(False))
         elif key == "again":
-            self.app.start_game(self.n_bots, self.level, None, self.tracker_enabled)
+            self.app.start_game(self.n_bots, self.level, None)
         elif key == "menu":
             self.app.go_menu()
 
     def on_key(self, key):
         if key == pygame.K_ESCAPE:
-            self.app.go_menu()
-        elif key == pygame.K_TAB and self.tracker_enabled:
-            self.show_tracker = not self.show_tracker
+            self.paused = not self.paused
+            self.sel = []
+        elif self.paused:
+            return
         elif key == pygame.K_SPACE and self.hover_own is not None:
             self.try_jump(self.hover_own[1])
 
@@ -368,8 +382,10 @@ class GameScene:
     # ------------------------------------------------------------ update
     def update(self, dt, mouse):
         g = self.g
-        self.t += dt
         self.mouse = mouse
+        if self.paused:
+            return
+        self.t += dt
         self.process_events()
         self.refresh_targets()
 
@@ -477,9 +493,7 @@ class GameScene:
             pygame.draw.rect(surf, (90, 130, 110), self._rect(DISCARD_POS), 1, border_radius=4)
         draw_text(surf, f"DISCARD {len(g.deck.discard)}", (DISCARD_POS[0] + 2, 108), WHITE, 1, INK, "center")
         if g.jump_open and g.phase not in (Phase.PEEK, Phase.GAME_OVER):
-            pulse = 0.5 + 0.5 * math.sin(self.t * 9)
-            if pulse > 0.4:
-                draw_text(surf, "JUMP!", (DISCARD_POS[0], 165), GOLD, 1, INK, "center")
+            draw_text(surf, "JUMP!", (DISCARD_POS[0], 166), GOLD, 1, INK, "center")
 
     def draw_seats(self, surf):
         g = self.g
@@ -518,28 +532,6 @@ class GameScene:
             c = color if i == len(lines) - 1 else tuple(int(v * 0.72) for v in color)
             draw_text(surf, text[:44], (x0 + 4, y0 + 4 + i * 7), c, 1)
 
-    def draw_tracker(self, surf):
-        g = self.g
-        panel = pygame.Surface((LOGICAL_W, LOGICAL_H), pygame.SRCALPHA)
-        panel.fill((6, 12, 14, 215))
-        surf.blit(panel, (0, 0))
-        draw_text(surf, "DISCARD TRACKER - BRIGHT = ALREADY DISCARDED", (240, 52), GOLD, 1, INK, "center")
-        discarded = {c.id for c in g.deck.discard}
-        cw, ch = 28, 26
-        x0 = 240 - 13 * cw // 2
-        for si, suit in enumerate(SUITS):
-            for r in range(1, 14):
-                c = Card(r, suit)
-                x, y = x0 + (r - 1) * cw, 70 + si * ch
-                hit = c.id in discarded
-                bg = (240, 232, 205) if hit else (30, 52, 50)
-                pygame.draw.rect(surf, bg, (x + 1, y + 1, cw - 3, ch - 3), border_radius=2)
-                fg = suit_color(suit) if hit else (88, 120, 112)
-                draw_text(surf, c.label, (x + 4, y + 4), fg, 1)
-                draw_suit(surf, suit, (x + cw - 10, y + 15), size=5, color=fg)
-        draw_text(surf, f"DISCARDED {len(discarded)}   IN DECK {len(g.deck.draw_pile)}", (240, 184), WHITE, 1, INK, "center")
-        draw_text(surf, "TAB: CLOSE", (240, 200), (150, 180, 170), 1, None, "center")
-
     def draw(self, surf, atlas, felt):
         g = self.g
         world = pygame.Surface((LOGICAL_W, LOGICAL_H))
@@ -550,7 +542,7 @@ class GameScene:
         for sp in order:
             hov = (sp.card is not None and self.hover is not None
                    and g.hands[self.hover[0]][self.hover[1]] is sp.card)
-            sp.draw(world, atlas, self.t, self.mouse, hov, idle=not sp.moving)
+            sp.draw(world, atlas, self.t, self.mouse, hov, idle=False)
         if g.held is not None:
             who = name(g.current)
             draw_text(world, f"{who} HOLD{'' if g.current == 0 else 'S'}", (HOLD_POS[0], 108), WHITE, 1, INK, "center")
@@ -566,8 +558,7 @@ class GameScene:
         if g.phase != Phase.GAME_OVER:
             draw_text(world, "JUMP IN: RIGHT-CLICK,", (8, 244), (170, 200, 190), 1, INK)
             draw_text(world, "SHIFT-CLICK OR SPACE", (8, 251), (170, 200, 190), 1, INK)
-            draw_text(world, "TAB: TRACKER  ESC: MENU" if self.tracker_enabled else "ESC: MENU",
-                      (8, 258), (170, 200, 190), 1, INK)
+            draw_text(world, "ESC: PAUSE", (8, 258), (170, 200, 190), 1, INK)
         for text, color, x, y, life in self.toasts:
             draw_text(world, text, (x, y - 8), color, 2, INK, "center")
         if self.banner:
@@ -576,13 +567,24 @@ class GameScene:
             draw_text(world, text, (240, 128), GOLD, sc, INK, "center")
         if g.phase == Phase.GAME_OVER:
             self.draw_result(world)
-        if self.show_tracker and self.tracker_enabled:
-            self.draw_tracker(world)
+        if self.paused:
+            self.draw_pause(world)
         ox = oy = 0
         if self.shake > 0:
             a = self.shake * 14
             ox, oy = random.uniform(-a, a), random.uniform(-a, a)
         surf.blit(world, (int(ox), int(oy)))
+
+    def draw_pause(self, surf):
+        dim = pygame.Surface((LOGICAL_W, LOGICAL_H), pygame.SRCALPHA)
+        dim.fill((6, 12, 14, 190))
+        surf.blit(dim, (0, 0))
+        pygame.draw.rect(surf, PANEL, (170, 78, 140, 100), border_radius=5)
+        pygame.draw.rect(surf, GOLD, (170, 78, 140, 100), 1, border_radius=5)
+        draw_text(surf, "PAUSED", (240, 90), GOLD, 3, INK, "center")
+        for b in self.pause_buttons():
+            b.draw(surf, b.rect.collidepoint(self.mouse))
+        draw_text(surf, "ESC TO RESUME", (240, 168), (150, 180, 170), 1, None, "center")
 
     def draw_result(self, surf):
         g = self.g

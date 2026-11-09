@@ -16,8 +16,8 @@ Options: `--bots 1-4`, `--difficulty easy|medium|hard`, `--seed N`, `--start` (s
 
 - Left click: deck, discard pile, cards
 - Jump in: right click, shift-click, or hover + space
-- Tab: discard tracker
-- Esc: menu
+- Esc: pause (press again to resume, or go back to the menu)
+- F11: fullscreen
 
 ## Rules
 
