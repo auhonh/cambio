@@ -1,0 +1,600 @@
+"""The game table scene: layout, input, bot pacing, log, tracker."""
+from __future__ import annotations
+
+import math
+import random
+
+import pygame
+
+from .. import actions as A
+from ..bot import Bot
+from ..cards import SUITS, Card, card_from_id
+from ..engine import Game, IllegalAction, Phase
+from .fx import LOGICAL_H, LOGICAL_W, CardSprite
+from .sprites import (BACK_BASE, BLACK, CARD_H, CARD_W, CREAM, GOLD, INK, RED,
+                      WHITE, draw_suit, draw_text, suit_color, text_width)
+
+DECK_POS = (190, 138)
+DISCARD_POS = (235, 138)
+HOLD_POS = (300, 138)
+HUMAN_CENTER = (240, 219)
+BOT_SEATS = {
+    1: [(240, 58)],
+    2: [(150, 58), (330, 58)],
+    3: [(52, 128), (240, 58), (428, 128)],
+    4: [(52, 128), (160, 58), (320, 58), (428, 128)],
+}
+GAP = 3
+SHOW_TIME = 2.4
+GOOD = (120, 230, 150)
+PANEL = (14, 24, 26)
+
+
+def name(pid: int) -> str:
+    return "YOU" if pid == 0 else f"BOT {pid}"
+
+
+def poss(pid: int) -> str:
+    return "YOUR" if pid == 0 else f"BOT {pid}'S"
+
+
+class Button:
+    def __init__(self, key, label, rect, color=CREAM, text=INK):
+        self.key, self.label, self.rect, self.color, self.text = key, label, pygame.Rect(rect), color, text
+
+    def draw(self, surf, hover):
+        r = self.rect
+        pygame.draw.rect(surf, INK, r.inflate(2, 2), border_radius=3)
+        shade = tuple(min(255, c + 25) for c in self.color) if hover else self.color
+        pygame.draw.rect(surf, shade, r, border_radius=3)
+        pygame.draw.rect(surf, tuple(c * 3 // 5 for c in self.color), (r.x + 1, r.bottom - 3, r.w - 2, 2))
+        draw_text(surf, self.label, (r.centerx, r.centery - 2), self.text, 1, align="center")
+
+
+class GameScene:
+    def __init__(self, app, n_bots: int, level: str, seed=None, tracker: bool = True):
+        self.app = app
+        self.n_bots, self.level, self.seed, self.tracker_enabled = n_bots, level, seed, tracker
+        self.n = n_bots + 1
+        self.g = Game(self.n, seed)
+        self.rng = random.Random(seed)
+        self.bots = {p: Bot(p, level, self.rng) for p in range(1, self.n)}
+        self.sprites: dict[int, CardSprite] = {}
+        self.draw_ids: list[int] = []
+        self.reveal: dict[int, float] = {}
+        self.flash: dict[tuple, float] = {}
+        self.event_idx = 0
+        self.log: list[tuple[str, tuple]] = []
+        self.toasts: list[list] = []
+        self.banner: tuple[str, float] | None = None
+        self.bot_timer = 1.6
+        self.jump_timers: dict[int, float] = {}
+        self.sel: list[tuple[int, int]] = []
+        self.shake = 0.0
+        self.show_tracker = False
+        self.t = 0.0
+        self.last_current = -1
+        self.mouse = (0, 0)
+        self.hover = None
+        self.hover_own = None
+        self._deal()
+
+    # ------------------------------------------------------------- layout
+    def seat_center(self, pid):
+        return HUMAN_CENTER if pid == 0 else BOT_SEATS[self.n_bots][pid - 1]
+
+    def slot_pos(self, owner, slot):
+        cx, cy = self.seat_center(owner)
+        cols = max(2, math.ceil(len(self.g.hands[owner]) / 2))
+        w = cols * (CARD_W + GAP) - GAP
+        col, row = slot // 2, slot % 2
+        x = cx - w / 2 + col * (CARD_W + GAP) + CARD_W / 2
+        y = cy - (2 * CARD_H + GAP) / 2 + row * (CARD_H + GAP) + CARD_H / 2
+        return x, y
+
+    def _deal(self):
+        k = 0
+        for slot in range(4):
+            for o in range(self.n):
+                c = self.g.hands[o][slot]
+                sp = self.sprite(c)
+                sp.delay = 0.35 + 0.07 * k
+                k += 1
+        for slot in (1, 3):  # starting peek stays face up until READY
+            self.reveal[self.g.hands[0][slot].id] = 1e9
+
+    def sprite(self, c: Card) -> CardSprite:
+        sp = self.sprites.get(c.id)
+        if sp is None:
+            sp = self.sprites[c.id] = CardSprite(c, DECK_POS)
+        return sp
+
+    # --------------------------------------------------------- visibility
+    def face_up(self, c: Card) -> bool:
+        g = self.g
+        if g.phase == Phase.GAME_OVER or self.reveal.get(c.id, 0) > 0:
+            return True
+        if g.held is c and (g.held_from == "discard" or g.current == 0):
+            return True
+        return False
+
+    # ---------------------------------------------------------- targets
+    def refresh_targets(self):
+        g = self.g
+        placed: set[int] = set()
+        shown: list[int] = []
+
+        def put(c, pos, z, rot=0.0, show=True, face=None):
+            sp = self.sprite(c)
+            sp.set_target(pos[0], pos[1], z, rot)
+            sp.face_target = 1.0 if (self.face_up(c) if face is None else face) else 0.0
+            placed.add(c.id)
+            if show:
+                shown.append(c.id)
+
+        for o, hand in enumerate(g.hands):
+            for s, c in enumerate(hand):
+                if c is not None:
+                    put(c, self.slot_pos(o, s), 10 + s)
+        if g.held is not None:
+            put(g.held, HOLD_POS, 40)
+        disc = g.deck.discard
+        for i, c in enumerate(disc):
+            depth = len(disc) - 1 - i
+            if depth < 3:
+                j = (c.id * 37) % 5 - 2, (c.id * 53) % 5 - 2
+                put(c, (DISCARD_POS[0] + j[0], DISCARD_POS[1] + j[1]), 1 + i, ((c.id * 29) % 9 - 4) * 0.8, face=True)
+            else:
+                put(c, DISCARD_POS, 0, show=False, face=True)
+        for cid, sp in self.sprites.items():
+            if cid not in placed:  # back in the draw pile
+                sp.x, sp.y = sp.tx, sp.ty = DECK_POS
+                sp.face = sp.face_target = 0.0
+        self.draw_ids = shown
+
+    # ---------------------------------------------------- what is clickable
+    def interactive(self) -> set:
+        g = self.g
+        if g.phase in (Phase.PEEK, Phase.GAME_OVER) or g.current != 0:
+            return set()
+        own = {(0, s) for s, c in enumerate(g.hands[0]) if c is not None}
+        opp = {(o, s) for o in range(1, self.n) for s, c in enumerate(g.hands[o]) if c is not None}
+        ph = g.phase
+        if ph in (Phase.HOLDING, Phase.POWER_SELF):
+            return own
+        if ph == Phase.POWER_OPP:
+            return opp
+        if ph == Phase.POWER_JACK:
+            return {p for p in own | opp if p[0] != g.cambio_caller}
+        if ph == Phase.POWER_QUEEN:
+            return own | {p for p in opp if p[0] != g.cambio_caller}
+        return set()
+
+    def buttons(self):
+        g = self.g
+        x, w, h = 10, 92, 17
+        out = []
+        if g.phase == Phase.GAME_OVER:
+            return [Button("again", "PLAY AGAIN", (x, 196, w, h), GOLD),
+                    Button("menu", "MENU", (x, 218, w, h))]
+        if g.phase == Phase.PEEK:
+            return [Button("ready", "READY!", (x, 196, w, h), GOLD)]
+        if g.current != 0:
+            return []
+        if g.phase == Phase.DRAW and g.cambio_caller is None:
+            out.append(Button("cambio", "CALL CAMBIO", (x, 218, w, h), (240, 110, 100)))
+        elif g.phase in (Phase.POWER_SELF, Phase.POWER_OPP, Phase.POWER_JACK, Phase.POWER_QUEEN):
+            out.append(Button("skip", "SKIP POWER", (x, 196, w, h)))
+        elif g.phase == Phase.QUEEN_DECIDE:
+            out += [Button("swap", "SWAP THEM", (x, 196, w, h), GOLD), Button("keep", "KEEP", (x, 218, w, h))]
+        return out
+
+    # ------------------------------------------------------------- input
+    def _rect(self, pos):
+        return pygame.Rect(0, 0, CARD_W, CARD_H).move(pos[0] - CARD_W / 2, pos[1] - CARD_H / 2)
+
+    def _slot_at(self, pt, allowed=None):
+        best = None
+        for o, hand in enumerate(self.g.hands):
+            for s, c in enumerate(hand):
+                if c is None or (allowed is not None and (o, s) not in allowed):
+                    continue
+                if self._rect(self.slot_pos(o, s)).collidepoint(pt):
+                    best = (o, s)  # later slots draw on top
+        return best
+
+    def submit(self, action, pid=0):
+        try:
+            self.g.apply(pid, action)
+        except IllegalAction as e:
+            msg = str(e).upper()
+            self.toast(msg if len(msg) < 28 else "NOT ALLOWED", RED, self.mouse)
+
+    def try_jump(self, slot):
+        self.submit(A.JumpIn(slot))
+
+    def on_mouse(self, pos, button, shift=False):
+        g = self.g
+        for b in self.buttons():
+            if b.rect.collidepoint(pos) and button == 1:
+                return self.on_button(b.key)
+        if g.phase == Phase.GAME_OVER:
+            return
+        mine = self._slot_at(pos, {(0, s) for s in range(len(g.hands[0]))})
+        if button == 3 or (button == 1 and shift):
+            if mine is not None:
+                self.try_jump(mine[1])
+            return
+        if button != 1 or g.phase == Phase.PEEK or g.current != 0:
+            return
+        ph = g.phase
+        on_deck = self._rect(DECK_POS).collidepoint(pos)
+        on_disc = self._rect(DISCARD_POS).collidepoint(pos)
+        slot = self._slot_at(pos, self.interactive())
+        if ph == Phase.DRAW:
+            if on_deck:
+                self.submit(A.DrawDeck())
+            elif on_disc and g.top is not None:
+                self.submit(A.TakeDiscard())
+        elif ph == Phase.HOLDING:
+            if slot is not None:
+                self.submit(A.Swap(slot[1]))
+            elif on_disc and g.held_from == "deck":
+                self.submit(A.Discard())
+        elif ph == Phase.POWER_SELF and slot:
+            self.submit(A.LookSelf(slot[1]))
+        elif ph == Phase.POWER_OPP and slot:
+            self.submit(A.LookOpp(*slot))
+        elif ph == Phase.POWER_JACK and slot:
+            if slot in self.sel:
+                self.sel.remove(slot)
+            else:
+                self.sel.append(slot)
+            if len(self.sel) == 2:
+                a, b = self.sel
+                self.sel = []
+                self.submit(A.BlindSwap(a, b))
+        elif ph == Phase.POWER_QUEEN and slot:
+            self.sel = [p for p in self.sel if (p[0] == 0) != (slot[0] == 0)]  # one own, one opp
+            if slot not in self.sel:
+                self.sel.append(slot)
+            if len(self.sel) == 2:
+                own = next(p for p in self.sel if p[0] == 0)
+                opp = next(p for p in self.sel if p[0] != 0)
+                self.sel = []
+                self.submit(A.QueenLook(own[1], opp))
+
+    def on_button(self, key):
+        g = self.g
+        if key == "ready":
+            self.submit(A.Ready())
+            self.reveal.clear()
+        elif key == "cambio":
+            self.submit(A.CallCambio())
+        elif key == "skip":
+            self.sel = []
+            self.submit(A.Skip())
+        elif key == "swap":
+            self.submit(A.QueenDecide(True))
+        elif key == "keep":
+            self.submit(A.QueenDecide(False))
+        elif key == "again":
+            self.app.start_game(self.n_bots, self.level, None, self.tracker_enabled)
+        elif key == "menu":
+            self.app.go_menu()
+
+    def on_key(self, key):
+        if key == pygame.K_ESCAPE:
+            self.app.go_menu()
+        elif key == pygame.K_TAB and self.tracker_enabled:
+            self.show_tracker = not self.show_tracker
+        elif key == pygame.K_SPACE and self.hover_own is not None:
+            self.try_jump(self.hover_own[1])
+
+    # ------------------------------------------------------------ events
+    def toast(self, text, color=WHITE, pos=(240, 150)):
+        self.toasts.append([text, color, float(pos[0]), float(pos[1]), 1.1])
+
+    def say(self, text, who=-1):
+        self.log.append((text, GOLD if who == 0 else WHITE))
+        self.log = self.log[-14:]
+
+    def process_events(self):
+        g = self.g
+        while self.event_idx < len(g.events):
+            ev = g.events[self.event_idx]
+            self.event_idx += 1
+            k, d, p = ev.kind, ev.data, ev.pid
+            n = name(p)
+            if k == "draw":
+                self.say(f"{n} DREW A CARD", p)
+            elif k == "take_discard":
+                self.say(f"{n} TOOK {d['card']} FROM PILE", p)
+            elif k == "discard":
+                verb = "SWAPPED, DISCARDING" if d["via"] == "swap" else "DISCARDED"
+                self.say(f"{n} {verb} {d['card']}", p)
+                for bp, bot in self.bots.items():
+                    if bot.wants_jump(g.view(bp)) is not None:
+                        self.jump_timers[bp] = bot.reaction_delay()
+            elif k == "look":
+                own = d["owner"] == p
+                if p == 0:
+                    self.reveal[d["card"].id] = SHOW_TIME
+                    self.say(f"YOU SAW {d['card']} ({'YOUR' if own else poss(d['owner'])} CARD)", 0)
+                else:
+                    self.say(f"{n} PEEKED AT {'THEIR OWN' if own else poss(d['owner'])} CARD", p)
+                self.flash[(d["owner"], d["slot"])] = 1.0
+            elif k == "blind_swap":
+                self.say(f"{n} BLIND-SWAPPED {poss(d['a'][0])} AND {poss(d['b'][0])} CARDS", p)
+                self.flash[d["a"]] = self.flash[d["b"]] = 1.0
+            elif k == "queen_look":
+                if p == 0:
+                    for c in d["cards"]:
+                        self.reveal[c.id] = 1e9
+                    self.say(f"YOU SAW {d['cards'][0]} AND {d['cards'][1]}", 0)
+                else:
+                    self.say(f"{n} LOOKED AT TWO CARDS", p)
+                self.flash[d["own"]] = self.flash[d["opp"]] = 1.0
+            elif k in ("queen_swap", "queen_keep"):
+                for cid in list(self.reveal):
+                    if self.reveal[cid] > 1e8:
+                        self.reveal[cid] = 0.7
+                if k == "queen_swap":
+                    self.say(f"{n} SWAPPED THE TWO CARDS", p)
+                    self.flash[d["a"]] = self.flash[d["b"]] = 1.0
+                else:
+                    self.say(f"{n} KEPT THEM IN PLACE", p)
+            elif k == "skip":
+                self.say(f"{n} SKIPPED THE POWER", p)
+            elif k == "jump_ok":
+                self.say(f"{n} JUMPED IN WITH {d['card']}!", p)
+                self.jump_timers.clear()
+                self.toast("JUMP-IN!", GOOD, self.slot_pos(p, d["slot"]) if p < self.n else (240, 150))
+            elif k == "jump_fail":
+                self.say(f"{n} MISJUMPED {d['card']}! +1 CARD", p)
+                self.reveal[d["card"].id] = 2.6
+                self.shake = 0.45 if p == 0 else 0.25
+                self.toast("WRONG!", RED, self.slot_pos(p, d["slot"]))
+            elif k == "cambio":
+                self.say(f"{n} CALLED CAMBIO!", p)
+                self.banner = (f"{n} CALLED CAMBIO!" if p else "YOU CALLED CAMBIO!", 2.0)
+            elif k == "reshuffle":
+                self.say("DISCARD PILE RESHUFFLED")
+                self.toast("RESHUFFLE", WHITE)
+            elif k == "game_over":
+                self.say("GAME OVER - ALL CARDS REVEALED")
+                self.reveal.clear()
+
+    # ------------------------------------------------------------ update
+    def update(self, dt, mouse):
+        g = self.g
+        self.t += dt
+        self.mouse = mouse
+        self.process_events()
+        self.refresh_targets()
+
+        inter = self.interactive()
+        self.hover = self._slot_at(mouse, inter) if inter else None
+        self.hover_own = self._slot_at(mouse, {(0, s) for s in range(len(g.hands[0]))})
+        for o, hand in enumerate(g.hands):
+            for s, c in enumerate(hand):
+                if c is None:
+                    continue
+                sp = self.sprites[c.id]
+                pos = (o, s)
+                sp.lift_target = 7 if pos == self.hover else (4 if pos in self.sel else 0)
+                sp.glow = GOLD if pos in self.sel else (WHITE if self.flash.get(pos, 0) > 0 else None)
+        for sp in self.sprites.values():
+            sp.update(dt)
+        for d in (self.reveal, self.flash):
+            for k in list(d):
+                d[k] -= dt
+                if d[k] <= 0:
+                    del d[k]
+        for tt in self.toasts:
+            tt[3] -= 14 * dt
+            tt[4] -= dt
+        self.toasts = [tt for tt in self.toasts if tt[4] > 0]
+        self.shake = max(0.0, self.shake - dt)
+        if self.banner:
+            self.banner = (self.banner[0], self.banner[1] - dt)
+            if self.banner[1] <= 0:
+                self.banner = None
+        self.update_bots(dt)
+
+    def busy(self):
+        return any(sp.moving for sp in self.sprites.values())
+
+    def update_bots(self, dt):
+        g = self.g
+        if g.phase in (Phase.PEEK, Phase.GAME_OVER):
+            return
+        for pid in list(self.jump_timers):
+            self.jump_timers[pid] -= dt
+            if self.jump_timers[pid] <= 0:
+                del self.jump_timers[pid]
+                slot = self.bots[pid].wants_jump(g.view(pid)) if g.jump_open else None
+                if slot is not None:
+                    self.submit(A.JumpIn(slot), pid)
+        if g.current != self.last_current:
+            self.last_current = g.current
+            self.bot_timer = 0.9
+        if g.current == 0 or g.phase == Phase.GAME_OVER:
+            return
+        if self.busy():
+            return
+        self.bot_timer -= dt
+        if self.bot_timer <= 0:
+            bot = self.bots[g.current]
+            self.submit(bot.choose(g.view(g.current)), g.current)
+            self.bot_timer = self.rng.uniform(0.6, 1.0)
+
+    # -------------------------------------------------------------- draw
+    def prompt(self):
+        g = self.g
+        if g.phase == Phase.PEEK:
+            return "MEMORIZE YOUR BOTTOM TWO CARDS, THEN CLICK READY"
+        if g.phase == Phase.GAME_OVER:
+            return ""
+        if g.current == 0:
+            ph = g.phase
+            if ph == Phase.DRAW:
+                return ("LAST TURN: DRAW OR TAKE THE DISCARD" if g.cambio_caller is not None
+                        else "YOUR TURN: DRAW A CARD OR TAKE THE DISCARD")
+            if ph == Phase.HOLDING:
+                return ("CLICK A CARD TO SWAP, OR THE PILE TO DISCARD" if g.held_from == "deck"
+                        else "CLICK ONE OF YOUR CARDS TO SWAP IT IN")
+            return {
+                Phase.POWER_SELF: "7/8: LOOK AT ONE OF YOUR CARDS",
+                Phase.POWER_OPP: "9/10: LOOK AT AN OPPONENT'S CARD",
+                Phase.POWER_JACK: f"JACK: PICK TWO CARDS TO BLIND-SWAP ({len(self.sel)}/2)",
+                Phase.POWER_QUEEN: "QUEEN: PICK ONE OF YOURS AND ONE OF THEIRS",
+                Phase.QUEEN_DECIDE: "SWAP THE TWO CARDS YOU JUST SAW?",
+            }[ph]
+        dots = "." * (int(self.t * 3) % 4)
+        who = name(g.current)
+        if g.phase == Phase.HOLDING:
+            return f"{who} IS HOLDING A CARD{dots}"
+        if g.phase == Phase.DRAW:
+            return f"{who} IS THINKING{dots}"
+        return f"{who} IS USING A POWER{dots}"
+
+    def draw_piles(self, surf, atlas):
+        g = self.g
+        n = len(g.deck.draw_pile)
+        if n:
+            for i in range(min(3, 1 + n // 12), 0, -1):
+                r = atlas.back.get_rect(center=(DECK_POS[0] - i + 1, DECK_POS[1] - i + 1))
+                surf.blit(atlas.shadow, r.move(2, 3))
+                surf.blit(atlas.back, r)
+            can = g.phase == Phase.DRAW and g.current == 0
+            if can and self._rect(DECK_POS).collidepoint(self.mouse):
+                pygame.draw.rect(surf, GOLD, self._rect(DECK_POS).inflate(4, 4), 1, border_radius=4)
+        else:
+            pygame.draw.rect(surf, (90, 130, 110), self._rect(DECK_POS), 1, border_radius=4)
+        draw_text(surf, f"DECK {n}", (DECK_POS[0], 108), WHITE, 1, INK, "center")
+        if not g.deck.discard:
+            pygame.draw.rect(surf, (90, 130, 110), self._rect(DISCARD_POS), 1, border_radius=4)
+        draw_text(surf, f"DISCARD {len(g.deck.discard)}", (DISCARD_POS[0] + 2, 108), WHITE, 1, INK, "center")
+        if g.jump_open and g.phase not in (Phase.PEEK, Phase.GAME_OVER):
+            pulse = 0.5 + 0.5 * math.sin(self.t * 9)
+            if pulse > 0.4:
+                draw_text(surf, "JUMP!", (DISCARD_POS[0], 165), GOLD, 1, INK, "center")
+
+    def draw_seats(self, surf):
+        g = self.g
+        over = g.phase == Phase.GAME_OVER
+        scores = g.scores() if over else None
+        winners = g.winners() if over else []
+        for pid in range(self.n):
+            cx, cy = self.seat_center(pid)
+            cols = max(2, math.ceil(len(g.hands[pid]) / 2))
+            w = cols * (CARD_W + GAP) - GAP
+            label = name(pid)
+            if over:
+                label += f" {scores[pid]}"
+            col = GOLD if (g.current == pid and not over) or (over and pid in winners) else WHITE
+            if pid == 0:
+                x, y = cx - w / 2 - 7, cy - 3
+                draw_text(surf, label, (x, y), col, 1 + over, INK, "right")
+            else:
+                y = cy - CARD_H - GAP / 2 - 8
+                draw_text(surf, label, (cx, y - (2 if over else 0)), col, 1 + over, INK, "center")
+            if g.current == pid and not over and g.phase != Phase.PEEK:
+                bob = int(math.sin(self.t * 6) * 1.5)
+                tx = cx if pid else cx - w / 2 - 7 - text_width(label) / 2
+                ty = (cy - CARD_H - GAP / 2 - 13 if pid else cy - 11) + bob
+                pygame.draw.polygon(surf, GOLD, [(tx - 3, ty), (tx + 3, ty), (tx, ty + 4)])
+        if g.cambio_caller is not None and not over:
+            draw_text(surf, f"{name(g.cambio_caller)} CALLED CAMBIO", (6, 6), GOLD, 1, INK)
+
+    def draw_log(self, surf):
+        x0, y0, w, h = 292, 184, 184, 82
+        panel = pygame.Surface((w, h), pygame.SRCALPHA)
+        pygame.draw.rect(panel, (*PANEL, 150), (0, 0, w, h), border_radius=4)
+        surf.blit(panel, (x0, y0))
+        lines = self.log[-11:]
+        for i, (text, color) in enumerate(lines):
+            c = color if i == len(lines) - 1 else tuple(int(v * 0.72) for v in color)
+            draw_text(surf, text[:44], (x0 + 4, y0 + 4 + i * 7), c, 1)
+
+    def draw_tracker(self, surf):
+        g = self.g
+        panel = pygame.Surface((LOGICAL_W, LOGICAL_H), pygame.SRCALPHA)
+        panel.fill((6, 12, 14, 215))
+        surf.blit(panel, (0, 0))
+        draw_text(surf, "DISCARD TRACKER - BRIGHT = ALREADY DISCARDED", (240, 52), GOLD, 1, INK, "center")
+        discarded = {c.id for c in g.deck.discard}
+        cw, ch = 28, 26
+        x0 = 240 - 13 * cw // 2
+        for si, suit in enumerate(SUITS):
+            for r in range(1, 14):
+                c = Card(r, suit)
+                x, y = x0 + (r - 1) * cw, 70 + si * ch
+                hit = c.id in discarded
+                bg = (240, 232, 205) if hit else (30, 52, 50)
+                pygame.draw.rect(surf, bg, (x + 1, y + 1, cw - 3, ch - 3), border_radius=2)
+                fg = suit_color(suit) if hit else (88, 120, 112)
+                draw_text(surf, c.label, (x + 4, y + 4), fg, 1)
+                draw_suit(surf, suit, (x + cw - 10, y + 15), size=5, color=fg)
+        draw_text(surf, f"DISCARDED {len(discarded)}   IN DECK {len(g.deck.draw_pile)}", (240, 184), WHITE, 1, INK, "center")
+        draw_text(surf, "TAB: CLOSE", (240, 200), (150, 180, 170), 1, None, "center")
+
+    def draw(self, surf, atlas, felt):
+        g = self.g
+        world = pygame.Surface((LOGICAL_W, LOGICAL_H))
+        felt.draw(world)
+        self.draw_seats(world)
+        self.draw_piles(world, atlas)
+        order = sorted((self.sprites[i] for i in self.draw_ids), key=lambda s: (s.moving, s.tz))
+        for sp in order:
+            hov = (sp.card is not None and self.hover is not None
+                   and g.hands[self.hover[0]][self.hover[1]] is sp.card)
+            sp.draw(world, atlas, self.t, self.mouse, hov, idle=not sp.moving)
+        if g.held is not None:
+            who = name(g.current)
+            draw_text(world, f"{who} HOLD{'' if g.current == 0 else 'S'}", (HOLD_POS[0], 108), WHITE, 1, INK, "center")
+            if g.held_from == "discard":
+                draw_text(world, "FROM PILE", (HOLD_POS[0], 166), (180, 220, 200), 1, INK, "center")
+        pr = self.prompt()
+        if pr:
+            draw_text(world, pr, (240, 163), WHITE, 1, INK, "center")
+        self.draw_log(world)
+        mp = self.mouse
+        for b in self.buttons():
+            b.draw(world, b.rect.collidepoint(mp))
+        if g.phase != Phase.GAME_OVER:
+            draw_text(world, "JUMP IN: RIGHT-CLICK,", (8, 244), (170, 200, 190), 1, INK)
+            draw_text(world, "SHIFT-CLICK OR SPACE", (8, 251), (170, 200, 190), 1, INK)
+            draw_text(world, "TAB: TRACKER  ESC: MENU" if self.tracker_enabled else "ESC: MENU",
+                      (8, 258), (170, 200, 190), 1, INK)
+        for text, color, x, y, life in self.toasts:
+            draw_text(world, text, (x, y - 8), color, 2, INK, "center")
+        if self.banner:
+            text, life = self.banner
+            sc = 3 if text_width(text, 3) < 440 else 2
+            draw_text(world, text, (240, 128), GOLD, sc, INK, "center")
+        if g.phase == Phase.GAME_OVER:
+            self.draw_result(world)
+        if self.show_tracker and self.tracker_enabled:
+            self.draw_tracker(world)
+        ox = oy = 0
+        if self.shake > 0:
+            a = self.shake * 14
+            ox, oy = random.uniform(-a, a), random.uniform(-a, a)
+        surf.blit(world, (int(ox), int(oy)))
+
+    def draw_result(self, surf):
+        g = self.g
+        w = g.winners()
+        if w == [0]:
+            text, col = "YOU WIN!", GOLD
+        elif 0 in w:
+            text, col = "YOU TIE!", GOLD
+        elif len(w) == 1:
+            text, col = f"BOT {w[0]} WINS", RED
+        else:
+            text, col = "BOTS TIE", RED
+        pygame.draw.rect(surf, PANEL, (130, 118, 220, 30), border_radius=4)
+        pygame.draw.rect(surf, col, (130, 118, 220, 30), 1, border_radius=4)
+        draw_text(surf, text, (240, 125), col, 3, INK, "center")
