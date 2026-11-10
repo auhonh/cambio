@@ -84,6 +84,7 @@ class Game:
         self.held: Optional[Card] = None
         self.held_from: Optional[str] = None
         self.jump_open = False
+        self._jump_won = False  # True once someone has won the current discard
         self.cambio_caller: Optional[int] = None
         self.queen_pair: Optional[tuple[Pos, Pos]] = None
         self._queen_ids: tuple[int, int] = (-1, -1)  # ids of the two cards the queen looked at
@@ -162,6 +163,7 @@ class Game:
     def _to_discard(self, card: Card, pid: int, via: str) -> None:
         self.deck.discard.append(card)
         self.jump_open = True
+        self._jump_won = False
         self._emit("discard", pid, card=card, via=via)
 
     def can_call_cambio(self, pid: int) -> bool:
@@ -366,8 +368,11 @@ class Game:
     def _jump(self, pid: int, slot: int, target: Optional[int] = None) -> None:
         if self.phase == Phase.PEEK:
             raise IllegalAction("not started")
-        if not self.jump_open or self.top is None:
-            raise IllegalAction("too late")
+        if self.top is None:
+            raise IllegalAction("nothing to jump on")
+        if not self.jump_open:
+            # someone already won this discard, or no card has been discarded to jump on yet
+            raise IllegalAction("too late" if self._jump_won else "no jump-in right now")
         if pid == self.cambio_caller:
             raise IllegalAction("locked after Cambio")
         owner = pid if target is None else target
@@ -382,6 +387,7 @@ class Game:
             self.hands[owner][slot] = None
             self.deck.discard.append(card)
             self.jump_open = False
+            self._jump_won = True
             self._emit("jump_ok", pid, slot=slot, card=card, owner=owner)
             if owner != pid:  # slammed an opponent's card: they get a replacement AND a penalty card
                 repl = self._draw_card()

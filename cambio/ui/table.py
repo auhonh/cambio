@@ -13,6 +13,7 @@ from ..bot import Bot
 from ..cards import SUITS, Card, card_from_id
 from ..engine import Game, IllegalAction, Phase
 from .fx import LOGICAL_H, LOGICAL_W, CardSprite
+from .rules import RulesPanel
 from .sprites import (BACK_BASE, BLACK, CARD_H, CARD_W, CREAM, GOLD, INK, RED,
                       WHITE, draw_suit, draw_text, suit_color, text_width)
 
@@ -27,6 +28,9 @@ BOT_SEATS = {
     4: [(52, 128), (160, 58), (320, 58), (428, 128)],
 }
 GAP = 3
+# DEV KNOB: card animation speed while a bot is playing (1.0 = same as your turn, lower = slower,
+# easier to follow). Bots also wait for animations to finish, so this stretches their turns too.
+BOT_ANIM_SPEED = 0.65
 SHOW_TIME = 2.4
 GOOD = (120, 230, 150)
 PANEL = (14, 24, 26)
@@ -75,6 +79,7 @@ class GameScene:
         self.shake = 0.0
         self.t = 0.0
         self.paused = False
+        self.rules = None  # a RulesPanel while the rules page is open over the pause menu
         self.last_current = -1
         self.mouse = (0, 0)
         self.hover = None
@@ -224,17 +229,23 @@ class GameScene:
         self.submit(A.JumpIn(slot, None if owner == pid else owner), pid)
 
     def pause_buttons(self):
-        return [Button("resume", "RESUME", (190, 120, 100, 18), GOLD),
-                Button("menu", "MAIN MENU", (190, 144, 100, 18))]
+        return [Button("resume", "RESUME", (190, 116, 100, 18), GOLD),
+                Button("rules", "RULES", (190, 140, 100, 18)),
+                Button("menu", "MAIN MENU", (190, 164, 100, 18))]
 
     def on_mouse(self, pos, button, shift=False):
         g = self.g
         if self.paused:
-            if button == 1:
+            if self.rules:
+                if self.rules.on_mouse(pos, button):
+                    self.rules = None
+            elif button == 1:
                 for b in self.pause_buttons():
                     if b.rect.collidepoint(pos):
                         if b.key == "resume":
                             self.paused = False
+                        elif b.key == "rules":
+                            self.rules = RulesPanel()
                         else:
                             self.app.go_menu()
             return
@@ -307,7 +318,10 @@ class GameScene:
             self.app.go_menu()
 
     def on_key(self, key):
-        if key == pygame.K_ESCAPE:
+        if self.rules:
+            if self.rules.on_key(key):
+                self.rules = None
+        elif key == pygame.K_ESCAPE:
             self.paused = not self.paused
             self.sel = []
         elif self.paused:
@@ -424,7 +438,9 @@ class GameScene:
                 pos = (o, s)
                 sp.lift_target = 7 if pos == self.float_slot else (4 if pos in self.sel else 0)
                 sp.glow = GOLD if pos in self.sel else (WHITE if self.flash.get(pos, 0) > 0 else None)
+        anim = 1.0 if g.current == 0 or g.phase == Phase.GAME_OVER else BOT_ANIM_SPEED
         for sp in self.sprites.values():
+            sp.speed = anim
             sp.update(dt)
         for d in (self.reveal, self.flash):
             for k in list(d):
@@ -605,12 +621,14 @@ class GameScene:
         dim = pygame.Surface((LOGICAL_W, LOGICAL_H), pygame.SRCALPHA)
         dim.fill((6, 12, 14, 190))
         surf.blit(dim, (0, 0))
-        pygame.draw.rect(surf, PANEL, (170, 78, 140, 100), border_radius=5)
-        pygame.draw.rect(surf, GOLD, (170, 78, 140, 100), 1, border_radius=5)
-        draw_text(surf, "PAUSED", (240, 90), GOLD, 3, INK, "center")
+        pygame.draw.rect(surf, PANEL, (170, 72, 140, 134), border_radius=5)
+        pygame.draw.rect(surf, GOLD, (170, 72, 140, 134), 1, border_radius=5)
+        draw_text(surf, "PAUSED", (240, 84), GOLD, 3, INK, "center")
         for b in self.pause_buttons():
             b.draw(surf, b.rect.collidepoint(self.mouse))
-        draw_text(surf, "ESC TO RESUME", (240, 168), (150, 180, 170), 1, None, "center")
+        draw_text(surf, "ESC TO RESUME", (240, 191), (150, 180, 170), 1, None, "center")
+        if self.rules:
+            self.rules.draw(surf, self.mouse)
 
     def draw_result(self, surf):
         g = self.g

@@ -7,9 +7,11 @@ import pygame
 
 from ..cards import Card
 from .fx import LOGICAL_H, LOGICAL_W, CardSprite
+from .rules import RulesPanel
 from .sprites import CREAM, GOLD, INK, RED, WHITE, draw_text, text_width
 
 LEVELS = ["easy", "medium", "hard"]
+N_ROWS = 4  # opponents, difficulty, start, rules
 
 
 class MenuScene:
@@ -23,8 +25,9 @@ class MenuScene:
         for sp in self.deco:
             sp.face = sp.face_target = 1.0
         self.mouse = (0, 0)
+        self.rules = None  # a RulesPanel while the rules page is open
 
-    # rows: 0 opponents, 1 difficulty, 2 start
+    # rows: 0 opponents, 1 difficulty, 2 start, 3 rules
     def row_rect(self, i):
         return pygame.Rect(110, 126 + i * 28, 260, 22)
 
@@ -38,30 +41,48 @@ class MenuScene:
         self.app.start_game(self.n_bots, self.level)
 
     def on_key(self, key):
+        if self.rules:
+            if self.rules.on_key(key):
+                self.rules = None
+            return
         if key in (pygame.K_UP, pygame.K_w):
-            self.row = (self.row - 1) % 3
+            self.row = (self.row - 1) % N_ROWS
         elif key in (pygame.K_DOWN, pygame.K_s):
-            self.row = (self.row + 1) % 3
+            self.row = (self.row + 1) % N_ROWS
         elif key in (pygame.K_LEFT, pygame.K_a):
             self.change(self.row, -1)
         elif key in (pygame.K_RIGHT, pygame.K_d):
             self.change(self.row, 1)
         elif key in (pygame.K_RETURN, pygame.K_SPACE):
-            self.start() if self.row == 2 else self.change(self.row, 1)
+            if self.row == 2:
+                self.start()
+            elif self.row == 3:
+                self.rules = RulesPanel()
+            else:
+                self.change(self.row, 1)
         elif key in (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4):
             self.n_bots = key - pygame.K_0
+        elif key == pygame.K_r:
+            self.rules = RulesPanel()
         elif key == pygame.K_ESCAPE:
             self.app.running = False
 
     def on_mouse(self, pos, button, shift=False):
+        if self.rules:
+            if self.rules.on_mouse(pos, button):
+                self.rules = None
+            return
         if button != 1:
             return
-        for i in range(3):
+        for i in range(N_ROWS):
             r = self.row_rect(i)
             if r.collidepoint(pos):
                 self.row = i
                 if i == 2:
                     return self.start()
+                if i == 3:
+                    self.rules = RulesPanel()
+                    return
                 if i == 0:  # click directly on a number
                     for k in range(1, 5):
                         if self._num_rect(k).collidepoint(pos):
@@ -89,15 +110,16 @@ class MenuScene:
             sp.draw(surf, atlas, self.t, idle=False)
         draw_text(surf, "CAMBIO", (240, 92), GOLD, 5, INK, "center")
         rows = [("OPPONENTS", None), ("DIFFICULTY", self.level.upper())]
-        for i in range(3):
+        for i in range(N_ROWS):
             r = self.row_rect(i)
             sel = self.row == i
             pygame.draw.rect(surf, INK, r.inflate(2, 2), border_radius=3)
             pygame.draw.rect(surf, (36, 52, 60) if not sel else (70, 56, 40), r, border_radius=3)
             if sel:
                 pygame.draw.rect(surf, GOLD, r, 1, border_radius=3)
-            if i == 2:
-                draw_text(surf, "START GAME", r.center and (r.centerx, r.centery - 2), GOLD if sel else WHITE, 1, None, "center")
+            if i in (2, 3):
+                label = "START GAME" if i == 2 else "RULES"
+                draw_text(surf, label, (r.centerx, r.centery - 2), GOLD if sel else WHITE, 1, None, "center")
                 continue
             draw_text(surf, rows[i][0], (r.x + 8, r.centery - 2), WHITE if sel else (190, 200, 196))
             if i == 0:
@@ -108,4 +130,6 @@ class MenuScene:
                     draw_text(surf, str(k), (nr.centerx, nr.centery - 2), INK if on else WHITE, 1, None, "center")
             else:
                 draw_text(surf, f"< {rows[i][1]} >", (r.right - 8, r.centery - 2), GOLD if sel else WHITE, 1, None, "right")
-        draw_text(surf, "ARROWS / MOUSE TO CHOOSE, ENTER TO START", (240, 244), (170, 200, 190), 1, INK, "center")
+        draw_text(surf, "ARROWS / MOUSE TO CHOOSE, ENTER TO START", (240, 247), (170, 200, 190), 1, INK, "center")
+        if self.rules:
+            self.rules.draw(surf, self.mouse)

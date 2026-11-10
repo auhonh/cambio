@@ -87,11 +87,13 @@ class CardSprite:
         self.glow = None       # outline colour
         self.delay = 0.0       # seconds before this card starts moving (deal stagger)
         self.moving = False
+        self.speed = 1.0       # animation speed multiplier (<1 = slower)
 
     def set_target(self, x, y, z=0, rot=0.0):
         self.tx, self.ty, self.tz, self.rot_target = x, y, z, rot
 
     def update(self, dt):
+        dt *= self.speed
         if self.delay > 0:
             self.delay -= dt
             self.moving = True

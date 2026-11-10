@@ -115,14 +115,48 @@ def test_pause_freezes_game_and_resumes(gfx):
     advance(s, felt, 8)                              # bots must not act while paused
     assert len(s.g.events) == n_events and s.t == t
     s.draw(screen, atlas, felt)
-    s.on_mouse((240, 129), 1)                        # RESUME button
+    s.on_mouse((240, 125), 1)                        # RESUME button
     assert not s.paused
     s.on_key(pygame.K_ESCAPE)
     s.on_key(pygame.K_ESCAPE)                        # esc again also resumes
     assert not s.paused
     s.on_key(pygame.K_ESCAPE)
-    s.on_mouse((240, 153), 1)                        # MAIN MENU button
+    s.on_mouse((240, 149), 1)                        # RULES button
+    assert s.rules is not None
+    s.draw(screen, atlas, felt)
+    s.on_key(pygame.K_RIGHT)
+    assert s.rules.page == 1
+    s.on_key(pygame.K_ESCAPE)                        # esc closes the rules, not the pause menu
+    assert s.rules is None and s.paused
+    s.on_mouse((240, 173), 1)                        # MAIN MENU button
     assert getattr(app, "menu", False)
+
+
+def test_rules_page_in_main_menu(gfx):
+    screen, atlas, felt = gfx
+    from cambio.ui.menu import MenuScene
+    from cambio.ui.rules import PAGES, RulesPanel
+    m = MenuScene(FakeApp())
+    m.on_mouse(m.row_rect(3).center, 1)              # RULES row
+    assert m.rules is not None
+    for _ in range(len(PAGES) + 2):                  # every page renders and paging is clamped
+        m.draw(screen, atlas, felt)
+        m.on_key(pygame.K_RIGHT)
+    assert m.rules.page == len(PAGES) - 1
+    m.on_mouse(m.rules._back().center, 1)            # BACK closes it
+    assert m.rules is None
+    m.on_key(pygame.K_r)
+    assert m.rules is not None
+    m.on_key(pygame.K_ESCAPE)
+    assert m.rules is None and m.app.__dict__.get("running", True)
+
+
+def test_rules_text_fits_the_panel():
+    from cambio.ui.rules import CHARS, LINE_H, PAGES, PANEL_RECT, wrap
+    for title, paras in PAGES:
+        lines = sum(len(wrap(p, CHARS)) for p in paras)
+        used = 32 + lines * LINE_H + 5 * len(paras)
+        assert used <= PANEL_RECT.h - 32, f"page {title!r} overflows ({used}px)"
 
 
 def test_felt_stays_opaque_over_a_full_cycle(gfx):

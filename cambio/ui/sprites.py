@@ -9,7 +9,7 @@ import pygame
 
 from ..cards import Card, SUITS
 
-CARD_W, CARD_H = 34, 46
+CARD_W, CARD_H = 35, 47  # odd, so centred icons land on a true centre pixel
 
 # palette
 CREAM = (246, 238, 214)
@@ -109,16 +109,19 @@ def _blit_bits(surf, rows, pos, color, scale=1):
                 surf.fill(color, (x0 + x * scale, y0 + y * scale, scale, scale))
 
 
-def draw_suit(surf, suit, pos, size=5, scale=1, color=None):
+def draw_suit(surf, suit, pos, size=5, scale=1, color=None, flip=False):
     rows = (_SUIT5 if size == 5 else _SUIT7)[suit]
+    if flip:
+        rows = rows[::-1]
     _blit_bits(surf, rows, pos, color or suit_color(suit), scale)
 
 
 _CROWN = {"K": ["1010101", "1111111", "1111111"], "Q": ["0010100", "1010101", "0111110"], "J": ["0001000", "0011100", "0001000"]}
 
-# pip layouts for number cards: (column, row) with columns L=0,C=1,R=2
-_COLX = (7, 15, 22)
-_ROWY = (15, 21, 27, 33, 39)
+# Pip layouts for number cards: (column, row), columns L/C/R, rows 0..4 (half rows allowed).
+# Odd card dimensions let every 5px icon sit exactly on the card's centre lines.
+_COLX = (9, 15, 21)
+_PIP_Y0, _PIP_DY = 9, 6
 _PIPS = {
     2: [(1, 0), (1, 4)],
     3: [(1, 0), (1, 2), (1, 4)],
@@ -131,6 +134,9 @@ _PIPS = {
     10: [(0, 0), (2, 0), (1, 0.5), (0, 1), (2, 1), (0, 3), (2, 3), (1, 3.5), (0, 4), (2, 4)],
 }
 
+IDX_W, IDX_H = 7, 11   # corner index block: small rank on top, small suit below
+IDX_X, IDX_Y = 2, 3
+
 
 def _base(fill, border=OUTLINE) -> pygame.Surface:
     s = pygame.Surface((CARD_W, CARD_H), pygame.SRCALPHA)
@@ -139,23 +145,35 @@ def _base(fill, border=OUTLINE) -> pygame.Surface:
     return s
 
 
+def _index(card: Card) -> pygame.Surface:
+    """Rank over suit, like the corner of a normal playing card."""
+    s = pygame.Surface((IDX_W, IDX_H), pygame.SRCALPHA)
+    col = suit_color(card.suit)
+    label = card.label
+    w = text_width(label, 1)
+    draw_text(s, label, ((IDX_W - w) // 2, 0), col, 1)
+    draw_suit(s, card.suit, ((IDX_W - 5) // 2, 6), size=5)
+    return s
+
+
 def make_face(card: Card) -> pygame.Surface:
     s = _base(CREAM)
     col = suit_color(card.suit)
-    pygame.draw.rect(s, CREAM_SHADE, (3, 3, CARD_W - 6, CARD_H - 6), width=1, border_radius=2)
-    label = card.label
-    draw_text(s, label, (4, 4), col, scale=2)
-    r = card.rank
+    label, r = card.label, card.rank
+    idx = _index(card)
+    s.blit(idx, (IDX_X, IDX_Y))
+    s.blit(pygame.transform.rotate(idx, 180), (CARD_W - IDX_X - IDX_W, CARD_H - IDX_Y - IDX_H))
     if r == 1:
-        draw_suit(s, card.suit, (CARD_W // 2 - 10, CARD_H // 2 - 7), size=7, scale=3)
+        draw_suit(s, card.suit, ((CARD_W - 21) // 2, (CARD_H - 21) // 2), size=7, scale=3)
     elif r >= 11:
-        pygame.draw.rect(s, CREAM_SHADE, (6, 16, 22, 26), width=1)
-        _blit_bits(s, _CROWN[label], (14, 18), GOLD if r == 13 else col)
-        draw_text(s, label, (13, 22), col, scale=3)
-        draw_suit(s, card.suit, (15, 37), size=5)
+        pygame.draw.rect(s, CREAM_SHADE, (10, 9, 15, 29), width=1)
+        _blit_bits(s, _CROWN[label], (14, 11), GOLD if r == 13 else col)
+        draw_text(s, label, ((CARD_W - 9) // 2, 15), col, scale=3)
+        draw_suit(s, card.suit, ((CARD_W - 5) // 2, 31), size=5)
     else:
         for c, row in _PIPS[r]:
-            draw_suit(s, card.suit, (_COLX[c], int(_ROWY[0] + row * 6)), size=5)
+            # like a real card, the pips in the lower half sit upside down
+            draw_suit(s, card.suit, (_COLX[c], int(_PIP_Y0 + row * _PIP_DY)), size=5, flip=row > 2)
     return s
 
 
