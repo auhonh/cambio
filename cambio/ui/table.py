@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import math
 import random
+import time
 
 import pygame
 
 from .. import actions as A
+from .. import bot as bot_module
 from ..bot import Bot
 from ..cards import SUITS, Card, card_from_id
 from ..engine import Game, IllegalAction, Phase
@@ -76,7 +78,7 @@ class GameScene:
         self.last_current = -1
         self.mouse = (0, 0)
         self.hover = None
-        self.hover_own = None
+        self.hover_any = None
         self._deal()
 
     # ------------------------------------------------------------- layout
@@ -210,8 +212,12 @@ class GameScene:
             msg = str(e).upper()
             self.toast(msg if len(msg) < 28 else "NOT ALLOWED", RED, self.mouse)
 
-    def try_jump(self, slot):
-        self.submit(A.JumpIn(slot))
+    def all_slots(self):
+        return {(o, s) for o, h in enumerate(self.g.hands) for s, c in enumerate(h) if c is not None}
+
+    def try_jump(self, pos, pid=0):
+        owner, slot = pos
+        self.submit(A.JumpIn(slot, None if owner == pid else owner), pid)
 
     def pause_buttons(self):
         return [Button("resume", "RESUME", (190, 120, 100, 18), GOLD),
@@ -233,10 +239,10 @@ class GameScene:
                 return self.on_button(b.key)
         if g.phase == Phase.GAME_OVER:
             return
-        mine = self._slot_at(pos, {(0, s) for s in range(len(g.hands[0]))})
         if button == 3 or (button == 1 and shift):
-            if mine is not None:
-                self.try_jump(mine[1])
+            hit = self._slot_at(pos, self.all_slots())
+            if hit is not None:
+                self.try_jump(hit)
             return
         if button != 1 or g.phase == Phase.PEEK or g.current != 0:
             return
@@ -302,8 +308,8 @@ class GameScene:
             self.sel = []
         elif self.paused:
             return
-        elif key == pygame.K_SPACE and self.hover_own is not None:
-            self.try_jump(self.hover_own[1])
+        elif key == pygame.K_SPACE and self.hover_any is not None:
+            self.try_jump(self.hover_any)
 
     # ------------------------------------------------------------ events
     def toast(self, text, color=WHITE, pos=(240, 150)):
@@ -361,14 +367,20 @@ class GameScene:
             elif k == "skip":
                 self.say(f"{n} SKIPPED THE POWER", p)
             elif k == "jump_ok":
-                self.say(f"{n} JUMPED IN WITH {d['card']}!", p)
+                o = d["owner"]
+                if o == p:
+                    self.say(f"{n} JUMPED IN WITH {d['card']}!", p)
+                else:
+                    self.say(f"{n} JUMPED IN WITH {poss(o)} {d['card']}! {name(o)} +1 CARD", p)
                 self.jump_timers.clear()
-                self.toast("JUMP-IN!", GOOD, self.slot_pos(p, d["slot"]) if p < self.n else (240, 150))
+                self.toast("JUMP-IN!", GOOD, self.slot_pos(o, d["slot"]) if o < self.n else (240, 150))
             elif k == "jump_fail":
-                self.say(f"{n} MISJUMPED {d['card']}! +1 CARD", p)
+                o = d["owner"]
+                whose = "" if o == p else f"{poss(o)} "
+                self.say(f"{n} MISJUMPED {whose}{d['card']}! +1 CARD", p)
                 self.reveal[d["card"].id] = 2.6
                 self.shake = 0.45 if p == 0 else 0.25
-                self.toast("WRONG!", RED, self.slot_pos(p, d["slot"]))
+                self.toast("WRONG!", RED, self.slot_pos(o, d["slot"]))
             elif k == "cambio":
                 self.say(f"{n} CALLED CAMBIO!", p)
                 self.banner = (f"{n} CALLED CAMBIO!" if p else "YOU CALLED CAMBIO!", 2.0)
@@ -391,7 +403,7 @@ class GameScene:
 
         inter = self.interactive()
         self.hover = self._slot_at(mouse, inter) if inter else None
-        self.hover_own = self._slot_at(mouse, {(0, s) for s in range(len(g.hands[0]))})
+        self.hover_any = self._slot_at(mouse, self.all_slots())
         for o, hand in enumerate(g.hands):
             for s, c in enumerate(hand):
                 if c is None:
@@ -429,9 +441,9 @@ class GameScene:
             self.jump_timers[pid] -= dt
             if self.jump_timers[pid] <= 0:
                 del self.jump_timers[pid]
-                slot = self.bots[pid].wants_jump(g.view(pid)) if g.jump_open else None
-                if slot is not None:
-                    self.submit(A.JumpIn(slot), pid)
+                pos = self.bots[pid].wants_jump(g.view(pid)) if g.jump_open else None
+                if pos is not None:
+                    self.try_jump(pos, pid)
         if g.current != self.last_current:
             self.last_current = g.current
             self.bot_timer = 0.9
@@ -442,6 +454,7 @@ class GameScene:
         self.bot_timer -= dt
         if self.bot_timer <= 0:
             bot = self.bots[g.current]
+            time.sleep(bot_module.BOT_SLEEP)
             self.submit(bot.choose(g.view(g.current)), g.current)
             self.bot_timer = self.rng.uniform(0.6, 1.0)
 
@@ -556,8 +569,8 @@ class GameScene:
         for b in self.buttons():
             b.draw(world, b.rect.collidepoint(mp))
         if g.phase != Phase.GAME_OVER:
-            draw_text(world, "JUMP IN: RIGHT-CLICK,", (8, 244), (170, 200, 190), 1, INK)
-            draw_text(world, "SHIFT-CLICK OR SPACE", (8, 251), (170, 200, 190), 1, INK)
+            draw_text(world, "JUMP IN (ANY CARD): RIGHT-", (8, 244), (170, 200, 190), 1, INK)
+            draw_text(world, "CLICK, SHIFT-CLICK OR SPACE", (8, 251), (170, 200, 190), 1, INK)
             draw_text(world, "ESC: PAUSE", (8, 258), (170, 200, 190), 1, INK)
         for text, color, x, y, life in self.toasts:
             draw_text(world, text, (x, y - 8), color, 2, INK, "center")

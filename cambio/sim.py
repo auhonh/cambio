@@ -24,9 +24,9 @@ def play_game(n_players: int, seed: int, level: str = "medium", max_steps: int =
             order = list(range(n_players))
             rng.shuffle(order)
             for pid in order:
-                slot = bots[pid].wants_jump(g.view(pid))
-                if slot is not None:
-                    g.apply(pid, A.JumpIn(slot))
+                pos = bots[pid].wants_jump(g.view(pid))
+                if pos is not None:
+                    g.apply(pid, A.JumpIn(pos[1], None if pos[0] == pid else pos[0]))
                     break
         pid = g.current
         g.apply(pid, bots[pid].choose(g.view(pid)))

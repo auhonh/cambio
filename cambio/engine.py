@@ -216,7 +216,7 @@ class Game:
         if self.phase == Phase.GAME_OVER:
             raise IllegalAction("game over")
         if isinstance(action, A.JumpIn):
-            return self._jump(pid, action.slot)
+            return self._jump(pid, action.slot, action.target)
         if self.phase == Phase.PEEK:
             if isinstance(action, A.Ready):
                 self.phase = Phase.DRAW
@@ -338,32 +338,42 @@ class Game:
             return self._begin_power(pid, card)
         raise IllegalAction(f"{action} not allowed while holding")
 
-    def _jump(self, pid: int, slot: int) -> None:
+    def _jump(self, pid: int, slot: int, target: Optional[int] = None) -> None:
         if self.phase == Phase.PEEK:
             raise IllegalAction("not started")
         if not self.jump_open or self.top is None:
             raise IllegalAction("too late")
         if pid == self.cambio_caller:
             raise IllegalAction("locked after Cambio")
-        card = self._card((pid, slot))
+        owner = pid if target is None else target
+        if not 0 <= owner < self.n:
+            raise IllegalAction("no such player")
+        if owner == self.cambio_caller:
+            raise IllegalAction("locked after Cambio")
+        card = self._card((owner, slot))
         if card is None:
             raise IllegalAction("empty slot")
         if card.rank == self.top.rank:
-            self.hands[pid][slot] = None
+            self.hands[owner][slot] = None
             self.deck.discard.append(card)
             self.jump_open = False
-            self._emit("jump_ok", pid, slot=slot, card=card)
+            self._emit("jump_ok", pid, slot=slot, card=card, owner=owner)
+            if owner != pid:  # slammed an opponent's card: they take the wrong-jump penalty
+                self._penalty(owner)
         else:
             for k in self.known:  # the wrong card is flashed to the whole table
                 k.add(card.id)
-            self._emit("jump_fail", pid, slot=slot, card=card)
-            pen = self._draw_card()
-            if pen is not None:
-                hand = self.hands[pid]
-                new_slot = next((i for i, c in enumerate(hand) if c is None), None)
-                if new_slot is None:
-                    hand.append(pen)
-                    new_slot = len(hand) - 1
-                else:
-                    hand[new_slot] = pen
-                self._emit("penalty", pid, slot=new_slot)
+            self._emit("jump_fail", pid, slot=slot, card=card, owner=owner)
+            self._penalty(pid)
+
+    def _penalty(self, pid: int) -> None:
+        pen = self._draw_card()
+        if pen is not None:
+            hand = self.hands[pid]
+            new_slot = next((i for i, c in enumerate(hand) if c is None), None)
+            if new_slot is None:
+                hand.append(pen)
+                new_slot = len(hand) - 1
+            else:
+                hand[new_slot] = pen
+            self._emit("penalty", pid, slot=new_slot)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 Pos = tuple[int, int]  # (owner player id, slot index)
 
@@ -70,5 +71,6 @@ class QueenDecide:  # queen: swap the two cards you just looked at, or not
 
 
 @dataclass(frozen=True)
-class JumpIn:  # slam one of your cards matching the discard top. Any time.
+class JumpIn:  # slam a card matching the discard top. Any time.
     slot: int
+    target: Optional[int] = None  # whose card: None = your own, else an opponent's

@@ -149,6 +149,22 @@ def test_jump_in_correct_and_wrong():
         g.apply(1, A.JumpIn(1))  # too late, first jump wins
 
 
+def test_jump_in_on_opponent_card():
+    g = Game(2, seed=6)
+    rig(g, [hand("2S", "3S", "4S", "5S"), hand("6H", "7H", "8H", "9H")], top=C("10C"), draw=[C("AD"), C("2D"), C("3D")])
+    g.apply(0, A.DrawDeck())
+    g.apply(0, A.Discard())  # discards AD
+    # wrong guess on an opponent's card: the jumper gets the penalty, the card is revealed
+    g.apply(0, A.JumpIn(0, 1))
+    assert len(g.hands[0]) == 5 and len(g.hands[1]) == 4
+    assert g.view(0).known[(1, 0)] == C("6H")
+    # right guess: opponent's card goes to the pile and the opponent gets the penalty
+    g.hands[1][2] = C("AS")
+    g.apply(0, A.JumpIn(2, 1))
+    assert g.top == C("AS") and g.hands[1][2] is not None and g.hands[1][2] != C("AS")
+    assert len(g.hands[0]) == 5 and not g.jump_open
+
+
 def test_cambio_gives_everyone_else_one_last_turn():
     g = Game(3, seed=7)
     rig(g, [hand("2S", "3S", "4S", "5S"), hand("6H", "7H", "8H", "9H"), hand("AH", "AD", "2D", "3D")], top=C("10C"))

@@ -14,6 +14,10 @@ from .actions import Pos
 from .cards import Card, card_from_id
 from .engine import Phase, View
 
+# DEV KNOB: seconds the bot sleeps (time.sleep) right before each move it makes
+# on its turn. 0 = no extra pause. Raise it to slow the game down.
+BOT_SLEEP = 0.0
+
 LEVELS = {
     #          forget/turn  cambio total  max unknown own  jump reaction (s)
     "easy":   dict(forget=0.12, cambio=7,  unknown_ok=2, react=(1.6, 3.2)),
@@ -54,14 +58,15 @@ class Bot:
         return out
 
     # ---------------------------------------------------------------- jumps
-    def wants_jump(self, v: View) -> Optional[int]:
+    def wants_jump(self, v: View) -> Optional[Pos]:
+        """A remembered card matching the pile top: own cards first, then any opponent's."""
         if not v.jump_open or not v.discard or self.pid == v.cambio_caller:
             return None
         top = v.discard[-1]
-        for pos, c in self._mem(v).items():
-            if pos[0] == self.pid and c.rank == top.rank:
-                return pos[1]
-        return None
+        hits = [pos for pos, c in self._mem(v).items()
+                if c.rank == top.rank and pos[0] != v.cambio_caller and v.occupied[pos[0]][pos[1]]]
+        hits.sort(key=lambda p: p[0] != self.pid)
+        return hits[0] if hits else None
 
     def reaction_delay(self) -> float:
         return self.rng.uniform(*self.cfg["react"])
