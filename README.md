@@ -28,3 +28,7 @@ Options: `--bots 1-4`, `--difficulty easy|medium|hard`, `--start` (skip the menu
 - You can also jump in with an opponent's card: if you're right they take a penalty card, if wrong you do (and bots can do it to you)
 - Call Cambio to end the game after everyone gets one more turn. Lowest score wins
 
+## Tweaking
+- `cambio/names.py`: `BOT_NAMES`, the pool bots are named from
+- `cambio/bot.py`: `BOT_SLEEP`, an extra pause before each bot move
+- `cambio/ui/table.py`: `BOT_ANIM_SPEED`, card animation speed during bot turns
