@@ -88,6 +88,21 @@ def test_right_click_jump_correct_and_wrong(gfx):
     assert len(g.hands[0]) == n + 1
 
 
+def test_right_click_jump_on_opponent_card(gfx):
+    screen, atlas, felt = gfx
+    s = GameScene(FakeApp(), 2, "medium", seed=3)
+    advance(s, felt, 2)
+    s.on_button("ready")
+    g = s.g
+    card = g.hands[1][0]
+    _put_on_discard(s, True, card)
+    n1 = len(g.hands[1])
+    s.on_mouse(s.slot_pos(1, 0), 3)          # right guess at a bot's card
+    assert g.top == card and len(g.hands[1]) == n1 + 1 and g.hands[1][0] is not None
+    assert len({c.id for c in g.all_cards()}) == 52
+    advance(s, felt, 2)                      # sprites settle without errors
+
+
 def test_pause_freezes_game_and_resumes(gfx):
     screen, atlas, felt = gfx
     app = FakeApp()

@@ -86,7 +86,10 @@ class Game:
         self.jump_open = False
         self.cambio_caller: Optional[int] = None
         self.queen_pair: Optional[tuple[Pos, Pos]] = None
+        self._queen_ids: tuple[int, int] = (-1, -1)  # ids of the two cards the queen looked at
         self.turn_count = 0
+        # the player who just finished a turn may still call Cambio until the next player acts
+        self.cambio_window_for: Optional[int] = None
         self.events: list[Event] = []
 
     # ------------------------------------------------------------------ info
@@ -161,6 +164,14 @@ class Game:
         self.jump_open = True
         self._emit("discard", pid, card=card, via=via)
 
+    def can_call_cambio(self, pid: int) -> bool:
+        """Cambio is callable at the start of your turn, or right after it ends until the next player acts."""
+        if self.cambio_caller is not None or self.phase == Phase.GAME_OVER:
+            return False
+        if pid == self.current:
+            return self.phase == Phase.DRAW
+        return self.phase == Phase.DRAW and self.cambio_window_for == pid
+
     def _end_turn(self) -> None:
         self.held = None
         self.held_from = None
@@ -170,6 +181,7 @@ class Game:
         if self.cambio_caller is not None and nxt == self.cambio_caller:
             self._end_game()
             return
+        self.cambio_window_for = self.current
         self.current = nxt
         self.turn_count += 1
 
@@ -200,16 +212,17 @@ class Game:
             self.phase = Phase.POWER_SELF
         elif r in (9, 10) and opp:
             self.phase = Phase.POWER_OPP
-        elif r == 11 and self._swap_pool(pid) >= 2:
+        elif r == 11 and self._jack_possible():
             self.phase = Phase.POWER_JACK
         elif r == 12 and own and self._opp_targets(pid, True):
             self.phase = Phase.POWER_QUEEN
         else:
             self._end_turn()
 
-    def _swap_pool(self, pid: int) -> int:
-        n = len(self._own_slots(pid)) if pid != self.cambio_caller else 0
-        return n + len(self._opp_targets(pid, True))
+    def _jack_possible(self) -> bool:
+        """A Jack swaps cards of two different players, so at least two must have swappable cards."""
+        return sum(1 for o in range(self.n)
+                   if o != self.cambio_caller and any(c is not None for c in self.hands[o])) >= 2
 
     # ----------------------------------------------------------------- apply
     def apply(self, pid: int, action) -> None:
@@ -222,8 +235,16 @@ class Game:
                 self.phase = Phase.DRAW
                 return
             raise IllegalAction("waiting for ready")
+        if isinstance(action, A.CallCambio) and pid != self.current:
+            if not self.can_call_cambio(pid):
+                raise IllegalAction("too late to call Cambio")
+            self.cambio_caller = pid  # the next player's turn is still to come, then everyone else's
+            self.cambio_window_for = None
+            self._emit("cambio", pid)
+            return
         if pid != self.current:
             raise IllegalAction("not your turn")
+        self.cambio_window_for = None  # the next player has started: too late to call after your turn
 
         ph = self.phase
         if ph == Phase.DRAW:
@@ -254,7 +275,7 @@ class Game:
                 return self._end_turn()
             if isinstance(action, A.BlindSwap):
                 a, b = action.a, action.b
-                if a != b and self._targetable(a) and self._targetable(b):
+                if a[0] != b[0] and self._targetable(a) and self._targetable(b):  # never two cards of one hand
                     self._swap_positions(a, b)
                     self._emit("blind_swap", pid, a=a, b=b)
                     return self._end_turn()
@@ -268,13 +289,17 @@ class Game:
                     self.known[pid].add(self._card(a).id)
                     self.known[pid].add(self._card(b).id)
                     self.queen_pair = (a, b)
+                    self._queen_ids = (self._card(a).id, self._card(b).id)
                     self.phase = Phase.QUEEN_DECIDE
                     self._emit("queen_look", pid, own=a, opp=b, cards=(self._card(a), self._card(b)))
                     return
         elif ph == Phase.QUEEN_DECIDE:
             if isinstance(action, A.QueenDecide):
                 a, b = self.queen_pair
-                if action.swap and self._targetable(a) and self._targetable(b):
+                # a jump-in may have replaced one of the looked-at cards meanwhile: then don't swap
+                same = (self._card(a) and self._card(a).id) == self._queen_ids[0] and \
+                       (self._card(b) and self._card(b).id) == self._queen_ids[1]
+                if action.swap and same and self._targetable(a) and self._targetable(b):
                     self._swap_positions(a, b)
                     self._emit("queen_swap", pid, a=a, b=b)
                 else:
@@ -358,12 +383,23 @@ class Game:
             self.deck.discard.append(card)
             self.jump_open = False
             self._emit("jump_ok", pid, slot=slot, card=card, owner=owner)
-            if owner != pid:  # slammed an opponent's card: they take the wrong-jump penalty
+            if owner != pid:  # slammed an opponent's card: they get a replacement AND a penalty card
+                repl = self._draw_card()
+                if repl is not None:
+                    self.hands[owner][slot] = repl
                 self._penalty(owner)
         else:
-            for k in self.known:  # the wrong card is flashed to the whole table
-                k.add(card.id)
-            self._emit("jump_fail", pid, slot=slot, card=card, owner=owner)
+            repl = self._draw_card() if owner != pid else None
+            if repl is not None:
+                # wrong guess at an opponent's card: it goes to the pile (face up) and is
+                # replaced by an unseen deck card that nobody, including its owner, knows
+                self.hands[owner][slot] = repl
+                self.deck.discard.append(card)
+                self._emit("jump_fail", pid, slot=slot, card=card, owner=owner, replaced=True)
+            else:
+                for k in self.known:  # your own wrong card is flashed to the whole table
+                    k.add(card.id)
+                self._emit("jump_fail", pid, slot=slot, card=card, owner=owner, replaced=False)
             self._penalty(pid)
 
     def _penalty(self, pid: int) -> None:

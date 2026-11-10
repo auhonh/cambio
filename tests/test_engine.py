@@ -157,12 +157,59 @@ def test_jump_in_on_opponent_card():
     # wrong guess on an opponent's card: the jumper gets the penalty, the card is revealed
     g.apply(0, A.JumpIn(0, 1))
     assert len(g.hands[0]) == 5 and len(g.hands[1]) == 4
-    assert g.view(0).known[(1, 0)] == C("6H")
+    assert g.top == C("6H")                          # their card went to the pile...
+    assert g.hands[1][0] is not None and g.hands[1][0] != C("6H")  # ...and was replaced
+    assert (1, 0) not in g.view(0).known and (1, 0) not in g.view(1).known  # unseen by all
+    assert len({c.id for c in g.all_cards()}) == 52
     # right guess: opponent's card goes to the pile and the opponent gets the penalty
+    g.deck.discard[-1] = C("AH")
     g.hands[1][2] = C("AS")
     g.apply(0, A.JumpIn(2, 1))
     assert g.top == C("AS") and g.hands[1][2] is not None and g.hands[1][2] != C("AS")
+    assert len(g.hands[1]) == 5 and all(c is not None for c in g.hands[1])  # replacement + penalty
     assert len(g.hands[0]) == 5 and not g.jump_open
+
+
+def test_queen_swap_is_cancelled_if_a_jump_replaced_a_looked_at_card():
+    g = Game(2, seed=6)
+    rig(g, [hand("2S", "3S", "4S", "5S"), hand("6H", "7H", "8H", "9H")], top=C("10C"), draw=[C("QD"), C("2D"), C("3D"), C("4D")])
+    g.apply(0, A.DrawDeck())
+    g.apply(0, A.Discard())                  # discards the queen
+    g.apply(0, A.QueenLook(0, (1, 1)))
+    g.hands[1][1] = C("QH")                  # opponent's card gets slammed on the queen
+    g.apply(0, A.JumpIn(1, 1))
+    assert g.hands[1][1] is not None and g.hands[1][1] != C("QH")
+    before = (g.hands[0][0], g.hands[1][1])
+    g.apply(0, A.QueenDecide(True))          # the card they saw is gone: no swap
+    assert (g.hands[0][0], g.hands[1][1]) == before
+
+
+def test_cambio_can_be_called_right_after_your_turn_until_next_player_acts():
+    g = Game(3, seed=7)
+    rig(g, [hand("2S", "3S", "4S", "5S"), hand("6H", "7H", "8H", "9H"), hand("AH", "AD", "2D", "3D")],
+        top=C("10C"), draw=[C("4D"), C("5D"), C("6D"), C("7D")])
+    g.current = 0
+    g.apply(0, A.DrawDeck())
+    g.apply(0, A.Swap(0))                    # turn over, player 1 is up but hasn't acted
+    assert g.current == 1 and g.can_call_cambio(0) and not g.can_call_cambio(2)
+    g.apply(0, A.CallCambio())
+    assert g.cambio_caller == 0 and g.current == 1
+    g.apply(1, A.DrawDeck())                 # player 1 still gets their last turn
+    g.apply(1, A.Swap(0))
+    g.apply(2, A.DrawDeck())
+    g.apply(2, A.Swap(0))
+    assert g.phase == Phase.GAME_OVER
+
+    g = Game(3, seed=7)
+    rig(g, [hand("2S", "3S", "4S", "5S"), hand("6H", "7H", "8H", "9H"), hand("AH", "AD", "2D", "3D")],
+        top=C("10C"), draw=[C("4D"), C("5D"), C("6D"), C("7D")])
+    g.current = 0
+    g.apply(0, A.DrawDeck())
+    g.apply(0, A.Swap(0))
+    g.apply(1, A.DrawDeck())                 # next player started: window closed
+    assert not g.can_call_cambio(0)
+    with pytest.raises(IllegalAction):
+        g.apply(0, A.CallCambio())
 
 
 def test_cambio_gives_everyone_else_one_last_turn():
@@ -187,10 +234,21 @@ def test_caller_cards_locked_from_blind_swap():
     g.cambio_caller = 0
     g.apply(1, A.DrawDeck())
     g.apply(1, A.Discard())
-    # only player 1's own four cards are swappable, so Jack is still usable
+    # only player 1's cards are swappable and a Jack can't swap within one hand: no power,
+    # so the turn just ends (and with it the game, since 0 called Cambio)
+    assert g.phase == Phase.GAME_OVER
+
+
+def test_blind_swap_cannot_swap_two_cards_of_the_same_hand():
+    g = Game(2, seed=7)
+    rig(g, [hand("2S", "3S", "4S", "5S"), hand("6H", "7H", "8H", "9H")], top=C("10C"), draw=[C("JD")])
+    g.current = 1
+    g.apply(1, A.DrawDeck())
+    g.apply(1, A.Discard())
+    assert g.phase == Phase.POWER_JACK
     with pytest.raises(IllegalAction):
-        g.apply(1, A.BlindSwap((0, 0), (1, 0)))
-    g.apply(1, A.BlindSwap((1, 0), (1, 1)))
+        g.apply(1, A.BlindSwap((1, 0), (1, 1)))
+    g.apply(1, A.BlindSwap((1, 0), (0, 1)))
 
 
 def test_deck_reshuffles_and_forgets():

@@ -79,6 +79,7 @@ class GameScene:
         self.mouse = (0, 0)
         self.hover = None
         self.hover_any = None
+        self.float_slot = None
         self._deal()
 
     # ------------------------------------------------------------- layout
@@ -181,8 +182,10 @@ class GameScene:
                     Button("menu", "MENU", (x, 218, w, h))]
         if g.phase == Phase.PEEK:
             return [Button("ready", "READY!", (x, 196, w, h), GOLD)]
-        if g.current != 0:
-            return []
+        if g.current != 0:  # just finished your turn and the next bot hasn't started yet
+            if g.can_call_cambio(0):
+                out.append(Button("cambio", "CALL CAMBIO", (x, 218, w, h), (240, 110, 100)))
+            return out
         if g.phase == Phase.DRAW and g.cambio_caller is None:
             out.append(Button("cambio", "CALL CAMBIO", (x, 218, w, h), (240, 110, 100)))
         elif g.phase in (Phase.POWER_SELF, Phase.POWER_OPP, Phase.POWER_JACK, Phase.POWER_QUEEN):
@@ -209,8 +212,9 @@ class GameScene:
         try:
             self.g.apply(pid, action)
         except IllegalAction as e:
-            msg = str(e).upper()
-            self.toast(msg if len(msg) < 28 else "NOT ALLOWED", RED, self.mouse)
+            if pid == 0:  # a bot losing a race for the pile isn't the player's business
+                msg = str(e).upper()
+                self.toast(msg if len(msg) < 28 else "NOT ALLOWED", RED, self.mouse)
 
     def all_slots(self):
         return {(o, s) for o, h in enumerate(self.g.hands) for s, c in enumerate(h) if c is not None}
@@ -267,8 +271,8 @@ class GameScene:
         elif ph == Phase.POWER_JACK and slot:
             if slot in self.sel:
                 self.sel.remove(slot)
-            else:
-                self.sel.append(slot)
+            else:  # the two cards must come from different hands: picking from the same hand replaces
+                self.sel = [p for p in self.sel if p[0] != slot[0]] + [slot]
             if len(self.sel) == 2:
                 a, b = self.sel
                 self.sel = []
@@ -371,16 +375,21 @@ class GameScene:
                 if o == p:
                     self.say(f"{n} JUMPED IN WITH {d['card']}!", p)
                 else:
-                    self.say(f"{n} JUMPED IN WITH {poss(o)} {d['card']}! {name(o)} +1 CARD", p)
+                    self.say(f"{n} JUMPED IN WITH {poss(o)} {d['card']}! {name(o)} +2 CARDS", p)
                 self.jump_timers.clear()
                 self.toast("JUMP-IN!", GOOD, self.slot_pos(o, d["slot"]) if o < self.n else (240, 150))
             elif k == "jump_fail":
                 o = d["owner"]
                 whose = "" if o == p else f"{poss(o)} "
                 self.say(f"{n} MISJUMPED {whose}{d['card']}! +1 CARD", p)
-                self.reveal[d["card"].id] = 2.6
+                if not d["replaced"]:
+                    self.reveal[d["card"].id] = 2.6
                 self.shake = 0.45 if p == 0 else 0.25
                 self.toast("WRONG!", RED, self.slot_pos(o, d["slot"]))
+                if d["replaced"]:  # the wrong card is the new top of the pile: bots may react to it
+                    for bp, bot in self.bots.items():
+                        if bot.wants_jump(g.view(bp)) is not None:
+                            self.jump_timers.setdefault(bp, bot.reaction_delay())
             elif k == "cambio":
                 self.say(f"{n} CALLED CAMBIO!", p)
                 self.banner = (f"{n} CALLED CAMBIO!" if p else "YOU CALLED CAMBIO!", 2.0)
@@ -403,14 +412,17 @@ class GameScene:
 
         inter = self.interactive()
         self.hover = self._slot_at(mouse, inter) if inter else None
-        self.hover_any = self._slot_at(mouse, self.all_slots())
+        # any card can be jumped on, so any card floats under the cursor (not while peeking / game over)
+        live = g.phase not in (Phase.PEEK, Phase.GAME_OVER)
+        self.hover_any = self._slot_at(mouse, self.all_slots()) if live else None
+        self.float_slot = self.hover or self.hover_any
         for o, hand in enumerate(g.hands):
             for s, c in enumerate(hand):
                 if c is None:
                     continue
                 sp = self.sprites[c.id]
                 pos = (o, s)
-                sp.lift_target = 7 if pos == self.hover else (4 if pos in self.sel else 0)
+                sp.lift_target = 7 if pos == self.float_slot else (4 if pos in self.sel else 0)
                 sp.glow = GOLD if pos in self.sel else (WHITE if self.flash.get(pos, 0) > 0 else None)
         for sp in self.sprites.values():
             sp.update(dt)
@@ -553,8 +565,9 @@ class GameScene:
         self.draw_piles(world, atlas)
         order = sorted((self.sprites[i] for i in self.draw_ids), key=lambda s: (s.moving, s.tz))
         for sp in order:
-            hov = (sp.card is not None and self.hover is not None
-                   and g.hands[self.hover[0]][self.hover[1]] is sp.card)
+            fs = self.float_slot
+            hov = (sp.card is not None and fs is not None
+                   and g.hands[fs[0]][fs[1]] is sp.card)
             sp.draw(world, atlas, self.t, self.mouse, hov, idle=False)
         if g.held is not None:
             who = name(g.current)

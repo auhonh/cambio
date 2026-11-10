@@ -16,7 +16,7 @@ from .engine import Phase, View
 
 # DEV KNOB: seconds the bot sleeps (time.sleep) right before each move it makes
 # on its turn. 0 = no extra pause. Raise it to slow the game down.
-BOT_SLEEP = 0.0
+BOT_SLEEP = 0.5
 
 LEVELS = {
     #          forget/turn  cambio total  max unknown own  jump reaction (s)
