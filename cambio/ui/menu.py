@@ -35,7 +35,7 @@ class MenuScene:
             self.level = LEVELS[(LEVELS.index(self.level) + d) % 3]
 
     def start(self):
-        self.app.start_game(self.n_bots, self.level, self.app.seed)
+        self.app.start_game(self.n_bots, self.level)
 
     def on_key(self, key):
         if key in (pygame.K_UP, pygame.K_w):
@@ -109,4 +109,3 @@ class MenuScene:
             else:
                 draw_text(surf, f"< {rows[i][1]} >", (r.right - 8, r.centery - 2), GOLD if sel else WHITE, 1, None, "right")
         draw_text(surf, "ARROWS / MOUSE TO CHOOSE, ENTER TO START", (240, 244), (170, 200, 190), 1, INK, "center")
-        draw_text(surf, "TRACK THE DISCARDS - THE DECK IS REAL, NOT RANDOM", (240, 254), (130, 170, 160), 1, INK, "center")

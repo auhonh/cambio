@@ -292,7 +292,7 @@ class GameScene:
         elif key == "keep":
             self.submit(A.QueenDecide(False))
         elif key == "again":
-            self.app.start_game(self.n_bots, self.level, None)
+            self.app.start_game(self.n_bots, self.level)
         elif key == "menu":
             self.app.go_menu()
 
@@ -488,10 +488,10 @@ class GameScene:
                 pygame.draw.rect(surf, GOLD, self._rect(DECK_POS).inflate(4, 4), 1, border_radius=4)
         else:
             pygame.draw.rect(surf, (90, 130, 110), self._rect(DECK_POS), 1, border_radius=4)
-        draw_text(surf, f"DECK {n}", (DECK_POS[0], 108), WHITE, 1, INK, "center")
+        draw_text(surf, "DECK", (DECK_POS[0], 108), WHITE, 1, INK, "center")
         if not g.deck.discard:
             pygame.draw.rect(surf, (90, 130, 110), self._rect(DISCARD_POS), 1, border_radius=4)
-        draw_text(surf, f"DISCARD {len(g.deck.discard)}", (DISCARD_POS[0] + 2, 108), WHITE, 1, INK, "center")
+        draw_text(surf, "DISCARD", (DISCARD_POS[0] + 2, 108), WHITE, 1, INK, "center")
         if g.jump_open and g.phase not in (Phase.PEEK, Phase.GAME_OVER):
             draw_text(surf, "JUMP!", (DISCARD_POS[0], 166), GOLD, 1, INK, "center")
 

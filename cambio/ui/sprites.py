@@ -17,8 +17,8 @@ CREAM_SHADE = (226, 214, 184)
 OUTLINE = (28, 22, 38)
 RED = (205, 52, 60)
 BLACK = (34, 32, 54)
-BACK_BASE = (44, 50, 120)
-BACK_LATTICE = (214, 84, 96)
+BACK_BASE = (176, 32, 48)
+BACK_LATTICE = (228, 150, 152)
 BACK_EDGE = (246, 238, 214)
 GOLD = (255, 205, 70)
 WHITE = (250, 248, 240)
@@ -169,7 +169,7 @@ def make_back() -> pygame.Surface:
     cx, cy = CARD_W // 2, CARD_H // 2
     pygame.draw.rect(s, BACK_EDGE, (cx - 6, cy - 6, 12, 12), border_radius=2)
     pygame.draw.rect(s, BACK_BASE, (cx - 5, cy - 5, 10, 10), border_radius=2)
-    draw_suit(s, "D", (cx - 3, cy - 3), size=5, color=GOLD)
+    draw_suit(s, "D", (cx - 3, cy - 3), size=5, color=CREAM)
     return s
 
 

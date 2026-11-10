@@ -10,7 +10,7 @@ python3 -m venv .venv
 .venv/bin/python main.py
 ```
 
-Options: `--bots 1-4`, `--difficulty easy|medium|hard`, `--seed N`, `--start` (skip the menu).
+Options: `--bots 1-4`, `--difficulty easy|medium|hard`, `--start` (skip the menu).
 
 ## Controls
 

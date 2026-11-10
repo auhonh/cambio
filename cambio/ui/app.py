@@ -12,7 +12,7 @@ WINDOW_SIZE = (1280, 720)
 
 
 class App:
-    def __init__(self, seed=None, bots=2, level="medium", autostart=False):
+    def __init__(self, bots=2, level="medium", autostart=False):
         pygame.init()
         pygame.display.set_caption("Cambio")
         self.window = pygame.display.set_mode(WINDOW_SIZE, pygame.RESIZABLE, vsync=1)
@@ -21,16 +21,15 @@ class App:
         self.atlas = Atlas()
         self.felt = Felt()
         self.overlay = make_overlay()
-        self.seed = seed
         self.running = True
         self.menu = MenuScene(self, bots, level)
         self.scene = self.menu
         if autostart:
             self.menu.start()
 
-    def start_game(self, n_bots, level, seed):
+    def start_game(self, n_bots, level):
         self.menu.n_bots, self.menu.level = n_bots, level
-        self.scene = GameScene(self, n_bots, level, seed)
+        self.scene = GameScene(self, n_bots, level)
 
     def go_menu(self):
         self.scene = self.menu

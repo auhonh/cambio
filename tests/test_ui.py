@@ -108,3 +108,13 @@ def test_pause_freezes_game_and_resumes(gfx):
     s.on_key(pygame.K_ESCAPE)
     s.on_mouse((240, 153), 1)                        # MAIN MENU button
     assert getattr(app, "menu", False)
+
+
+def test_felt_stays_opaque_over_a_full_cycle(gfx):
+    screen, atlas, felt = gfx
+    surf = pygame.Surface((480, 270))
+    for _ in range(int(felt.FRAMES / felt.SPEED * 2 * 10)):  # two full cycles
+        felt.update(0.1)
+        surf.fill((0, 0, 0))
+        felt.draw(surf)
+        assert surf.get_at((240, 135))[1] > 60, "felt turned dark (stale alpha)"

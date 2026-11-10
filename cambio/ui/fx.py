@@ -42,7 +42,9 @@ class Felt:
         pos = self.t * self.SPEED
         i = int(pos) % self.FRAMES
         blend = pos - int(pos)
-        surf.blit(self.frames[i], (0, 0))
+        base = self.frames[i]
+        base.set_alpha(255)  # may still carry the alpha it had as the fade-in layer
+        surf.blit(base, (0, 0))
         nxt = self.frames[(i + 1) % self.FRAMES]
         nxt.set_alpha(int(blend * 255))
         surf.blit(nxt, (0, 0))
