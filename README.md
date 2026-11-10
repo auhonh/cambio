@@ -1,6 +1,6 @@
 # Cambio
 
-Cambio card game vs 1-4 bots, made with pygame.
+Cambio card game vs 1-4 bots. (definitely not stolen balatro ui)
 
 ## Run
 
@@ -16,7 +16,6 @@ Options: `--bots 1-4`, `--difficulty easy|medium|hard`, `--start` (skip the menu
 
 - Left click: deck, discard pile, cards
 - Jump in (your cards or opponents'): right click, shift-click, or hover + space
-- Rules: RULES on the main menu (or press R) and in the pause menu
 - Esc: pause (press again to resume, or go back to the menu)
 - F11: fullscreen
 
