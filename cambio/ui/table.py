@@ -64,7 +64,6 @@ class GameScene:
         self.reveal: dict[int, float] = {}
         self.flash: dict[tuple, float] = {}
         self.event_idx = 0
-        self.log: list[tuple[str, tuple]] = []
         self.toasts: list[list] = []
         self.banner: tuple[str, float] | None = None
         self.bot_timer = 1.6
@@ -333,10 +332,6 @@ class GameScene:
     def toast(self, text, color=WHITE, pos=(240, 150)):
         self.toasts.append([text, color, float(pos[0]), float(pos[1]), 1.1])
 
-    def say(self, text, who=-1):
-        self.log.append((text, GOLD if who == 0 else WHITE))
-        self.log = self.log[-14:]
-
     def process_events(self):
         g = self.g
         while self.event_idx < len(g.events):
@@ -344,58 +339,33 @@ class GameScene:
             self.event_idx += 1
             k, d, p = ev.kind, ev.data, ev.pid
             n = self.name(p)
-            if k == "draw":
-                self.say(f"{n} DREW A CARD", p)
-            elif k == "take_discard":
-                self.say(f"{n} TOOK {d['card']} FROM PILE", p)
-            elif k == "discard":
-                verb = "SWAPPED, DISCARDING" if d["via"] == "swap" else "DISCARDED"
-                self.say(f"{n} {verb} {d['card']}", p)
+            if k == "discard":
                 for bp, bot in self.bots.items():
                     if bot.wants_jump(g.view(bp)) is not None:
                         self.jump_timers[bp] = bot.reaction_delay()
             elif k == "look":
-                own = d["owner"] == p
                 if p == 0:
                     self.reveal[d["card"].id] = SHOW_TIME
-                    self.say(f"YOU SAW {d['card']} ({'YOUR' if own else self.poss(d['owner'])} CARD)", 0)
-                else:
-                    self.say(f"{n} PEEKED AT {'THEIR OWN' if own else self.poss(d['owner'])} CARD", p)
                 self.flash[(d["owner"], d["slot"])] = 1.0
             elif k == "blind_swap":
-                self.say(f"{n} BLIND-SWAPPED {self.poss(d['a'][0])} AND {self.poss(d['b'][0])} CARDS", p)
                 self.flash[d["a"]] = self.flash[d["b"]] = 1.0
             elif k == "queen_look":
                 if p == 0:
                     for c in d["cards"]:
                         self.reveal[c.id] = 1e9
-                    self.say(f"YOU SAW {d['cards'][0]} AND {d['cards'][1]}", 0)
-                else:
-                    self.say(f"{n} LOOKED AT TWO CARDS", p)
                 self.flash[d["own"]] = self.flash[d["opp"]] = 1.0
             elif k in ("queen_swap", "queen_keep"):
                 for cid in list(self.reveal):
                     if self.reveal[cid] > 1e8:
                         self.reveal[cid] = 0.7
                 if k == "queen_swap":
-                    self.say(f"{n} SWAPPED THE TWO CARDS", p)
                     self.flash[d["a"]] = self.flash[d["b"]] = 1.0
-                else:
-                    self.say(f"{n} KEPT THEM IN PLACE", p)
-            elif k == "skip":
-                self.say(f"{n} SKIPPED THE POWER", p)
             elif k == "jump_ok":
                 o = d["owner"]
-                if o == p:
-                    self.say(f"{n} JUMPED IN WITH {d['card']}!", p)
-                else:
-                    self.say(f"{n} JUMPED IN WITH {self.poss(o)} {d['card']}! {self.name(o)} +2 CARDS", p)
                 self.jump_timers.clear()
                 self.toast("JUMP-IN!", GOOD, self.slot_pos(o, d["slot"]) if o < self.n else (240, 150))
             elif k == "jump_fail":
                 o = d["owner"]
-                whose = "" if o == p else f"{self.poss(o)} "
-                self.say(f"{n} MISJUMPED {whose}{d['card']}! +1 CARD", p)
                 if not d["replaced"]:
                     self.reveal[d["card"].id] = 2.6
                 self.shake = 0.45 if p == 0 else 0.25
@@ -405,13 +375,10 @@ class GameScene:
                         if bot.wants_jump(g.view(bp)) is not None:
                             self.jump_timers.setdefault(bp, bot.reaction_delay())
             elif k == "cambio":
-                self.say(f"{n} CALLED CAMBIO!", p)
                 self.banner = (f"{n} CALLED CAMBIO!" if p else "YOU CALLED CAMBIO!", 2.0)
             elif k == "reshuffle":
-                self.say("DISCARD PILE RESHUFFLED")
                 self.toast("RESHUFFLE", WHITE)
             elif k == "game_over":
-                self.say("GAME OVER - ALL CARDS REVEALED")
                 self.reveal.clear()
 
     # ------------------------------------------------------------ update
@@ -585,16 +552,6 @@ class GameScene:
         if g.cambio_caller is not None and not over:
             draw_text(surf, f"{self.name(g.cambio_caller)} CALLED CAMBIO", (6, 6), GOLD, 1, INK)
 
-    def draw_log(self, surf):
-        x0, y0, w, h = 292, 184, 184, 82
-        panel = pygame.Surface((w, h), pygame.SRCALPHA)
-        pygame.draw.rect(panel, (*PANEL, 150), (0, 0, w, h), border_radius=4)
-        surf.blit(panel, (x0, y0))
-        lines = self.log[-11:]
-        for i, (text, color) in enumerate(lines):
-            c = color if i == len(lines) - 1 else tuple(int(v * 0.72) for v in color)
-            draw_text(surf, text[:44], (x0 + 4, y0 + 4 + i * 7), c, 1)
-
     def draw(self, surf, atlas, felt):
         g = self.g
         world = pygame.Surface((LOGICAL_W, LOGICAL_H))
@@ -615,7 +572,6 @@ class GameScene:
         pr = self.prompt()
         if pr:
             draw_text(world, pr, (240, 163), WHITE, 1, INK, "center")
-        self.draw_log(world)
         mp = self.mouse
         for b in self.buttons():
             b.draw(world, b.rect.collidepoint(mp))

@@ -5,7 +5,6 @@ only, since the pixel font has no lowercase and few symbols.
 """
 
 BOT_NAMES = [
-    "ADA", "ALAN", "BEA", "BORIS", "CLEO", "DEXTER", "ELSA", "FINN", "GRETA", "HUGO",
-    "IVY", "JASPER", "KIRA", "LEO", "MAYA", "NOAH", "OSCAR", "PIPER", "QUINN", "ROSA",
-    "SASHA", "TESS", "UMA", "VIKTOR", "WILLOW", "XENIA", "YARA", "ZEKE",
+    "DANIEL YI", "DANIEL YI", "DANIEL YI", "NAHOM", "RUSLAN", "AARON", "IRELAND", "WEE SHAMIT SLOMO",
+    "ALLISON", "MADDIE", "EVA", "JAKCOSN", "DONNAFRINSUIZ", "AUH", "FIZZA", 
 ]
