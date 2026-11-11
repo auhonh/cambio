@@ -177,7 +177,50 @@ def test_bots_get_unique_random_names(gfx):
     assert len(set(bots)) == 4 and all(b in BOT_NAMES for b in bots)
     assert s.poss(1) == f"{bots[0]}'S"
     assert bots == [GameScene(FakeApp(), 4, "medium", seed=5).name(p) for p in range(1, 5)]  # seeded = repeatable
-    assert all(set(n) <= set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") for n in BOT_NAMES)  # the pixel font's alphabet
+    assert all(set(n) <= set("ABCDEFGHIJKLMNOPQRSTUVWXYZ ") and 0 < len(n) <= 16 for n in BOT_NAMES)  # pixel font, 16 max
+
+
+def test_duplicate_names_in_the_list_never_collide():
+    from cambio.ui import table
+    old = table.BOT_NAMES
+    table.BOT_NAMES = ["TWIN", "TWIN", "TWIN", "TWIN", "SOLO", "ONE", "TWO"]
+    try:
+        for seed in range(30):
+            s = GameScene(FakeApp(), 4, "medium", seed=seed)
+            assert len({s.name(p) for p in range(1, 5)}) == 4
+    finally:
+        table.BOT_NAMES = old
+
+
+@pytest.mark.parametrize("bots", [1, 2, 3, 4])
+def test_longest_names_stay_on_screen(gfx, monkeypatch, bots):
+    from cambio.ui import table
+    from cambio.ui.sprites import text_width
+    screen, atlas, felt = gfx
+    s = GameScene(FakeApp(), bots, "medium", seed=2)
+    s.names = {0: "YOU", **{p: "W" * 16 for p in range(1, bots + 1)}}   # widest letter, max length
+    seen = []
+    real = table.draw_text
+
+    def spy(surf, text, pos, color=(255, 255, 255), scale=1, shadow=None, align="left"):
+        w = text_width(text, scale)
+        x = pos[0] - (w if align == "right" else w // 2 if align == "center" else 0)
+        seen.append((text, x, x + w))
+        return real(surf, text, pos, color, scale, shadow, align)
+
+    monkeypatch.setattr(table, "draw_text", spy)
+    advance(s, felt, 2)
+    s.on_button("ready")
+    for pid in range(1, bots + 1):               # every bot in turn: name tab, prompts, banner
+        s.g.current = pid
+        s.banner = (f"{s.name(pid)} CALLED CAMBIO!", 2.0)
+        s.draw(screen, atlas, felt)
+    s.g.cambio_caller = 1
+    s.g._end_game()
+    s.draw(screen, atlas, felt)                  # scores beside names, winner panel
+    assert any("WWWW" in t for t, _, _ in seen)
+    for t, x0, x1 in seen:
+        assert x0 >= 0 and x1 <= 480, f"{t!r} spans {x0}..{x1}"
 
 
 def test_game_over_and_reshuffle_events_render(gfx):

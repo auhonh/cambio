@@ -58,7 +58,7 @@ class GameScene:
         self.g = Game(self.n, seed)
         self.rng = random.Random(seed)
         self.bots = {p: Bot(p, level, self.rng) for p in range(1, self.n)}
-        self.names = {0: "YOU", **dict(zip(self.bots, self.rng.sample(BOT_NAMES, len(self.bots))))}
+        self.names = {0: "YOU", **dict(zip(self.bots, self.rng.sample(list(dict.fromkeys(BOT_NAMES)), len(self.bots))))}
         self.sprites: dict[int, CardSprite] = {}
         self.draw_ids: list[int] = []
         self.reveal: dict[int, float] = {}
@@ -534,10 +534,14 @@ class GameScene:
             else:
                 lx, ly, align = cx, cy - CARD_H - GAP / 2 - 8 - (2 if over else 0), "center"
             scale = 1 + over
+            if scale == 2 and text_width(label, 2) > 2 * min(cx, LOGICAL_W - cx) - 8:
+                scale = 1  # a long name plus score won't fit big beside a screen edge
+            tw = text_width(label, scale)
+            if align == "center":
+                lx = max(tw / 2 + 2, min(LOGICAL_W - tw / 2 - 2, lx))
             if active:
                 ly = max(ly, 4)  # keep the name tab on screen for the seat at the top edge
                 self.draw_turn_glow(surf, cx, cy, w)
-                tw = text_width(label, scale)
                 px = lx - tw if align == "right" else lx - tw // 2
                 pill = pygame.Rect(int(px) - 4, int(ly) - 3, tw + 8, 5 * scale + 6)
                 pygame.draw.rect(surf, INK, pill.inflate(2, 2), border_radius=3)
@@ -550,7 +554,7 @@ class GameScene:
                 pygame.draw.polygon(surf, INK, [(tx - 5, ty - 1), (tx + 5, ty - 1), (tx, ty + 6)])
                 pygame.draw.polygon(surf, GOLD, [(tx - 4, ty), (tx + 4, ty), (tx, ty + 5)])
         if g.cambio_caller is not None and not over:
-            draw_text(surf, f"{self.name(g.cambio_caller)} CALLED CAMBIO", (6, 6), GOLD, 1, INK)
+            draw_text(surf, f"{self.name(g.cambio_caller)} CALLED CAMBIO", (6, 14), GOLD, 1, INK)
 
     def draw(self, surf, atlas, felt):
         g = self.g
@@ -619,6 +623,8 @@ class GameScene:
             text, col = f"{self.name(w[0]).upper()} WINS", RED
         else:
             text, col = "BOTS TIE", RED
-        pygame.draw.rect(surf, PANEL, (130, 118, 220, 30), border_radius=4)
-        pygame.draw.rect(surf, col, (130, 118, 220, 30), 1, border_radius=4)
+        bw = min(LOGICAL_W - 8, max(220, text_width(text, 3) + 24))  # grows for long winner names
+        box = ((LOGICAL_W - bw) // 2, 118, bw, 30)
+        pygame.draw.rect(surf, PANEL, box, border_radius=4)
+        pygame.draw.rect(surf, col, box, 1, border_radius=4)
         draw_text(surf, text, (240, 125), col, 3, INK, "center")
