@@ -33,7 +33,7 @@ Options: `--bots 1-4`, `--difficulty easy|medium|hard`, `--start` (skip the menu
 - `cambio/bot.py`: `BOT_SLEEP`, an extra pause before each bot move
 - `cambio/ui/table.py`: `BOT_ANIM_SPEED`, card animation speed during bot turns
 
-## Roadmpa
+## Roadmap
 - [ ] Expose cambio API for bot creation
   - [ ] Move bot architecture to using this API only?
   - [ ] RL environment?
