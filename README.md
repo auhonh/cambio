@@ -32,3 +32,9 @@ Options: `--bots 1-4`, `--difficulty easy|medium|hard`, `--start` (skip the menu
 - `cambio/names.py`: `BOT_NAMES`, the pool bots are named from
 - `cambio/bot.py`: `BOT_SLEEP`, an extra pause before each bot move
 - `cambio/ui/table.py`: `BOT_ANIM_SPEED`, card animation speed during bot turns
+
+## Roadmpa
+- [ ] Expose cambio API for bot creation
+  - [ ] Move bot architecture to using this API only?
+  - [ ] RL environment?
+- [ ] Create Agent Harness for a `cambio-bench`
