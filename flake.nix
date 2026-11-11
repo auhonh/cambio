@@ -18,5 +18,23 @@
           build-system = [pkgs.python3Packages.setuptools];
           dependencies = [pkgs.python3Packages.pygame-ce];
         };
+
+      # the test output
+      checks.${system}.default = 
+        pkgs.runCommand "cambio-tests"{
+
+          #everything we need to run these pytest tests
+          nativeBuildInputs = [
+            pkgs.python3 
+            pkgs.python3Packages.pytest 
+            pkgs.python3Packages.pygame-ce
+          ];
+        }''
+          cp -r ${./.} tests
+          chmod -R u+w tests
+          cd tests
+
+          python -m pytest && touch "$out"
+          '';
     };
 }
