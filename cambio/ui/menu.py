@@ -10,7 +10,7 @@ from .fx import LOGICAL_H, LOGICAL_W, CardSprite
 from .rules import RulesPanel
 from .sprites import CREAM, GOLD, INK, RED, WHITE, draw_text, text_width
 
-LEVELS = ["easy", "medium", "hard"]
+LEVELS = ["easy", "medium", "hard", "cambio"]
 N_ROWS = 4  # opponents, difficulty, start, rules
 
 
@@ -35,7 +35,7 @@ class MenuScene:
         if row == 0:
             self.n_bots = max(1, min(4, self.n_bots + d))
         elif row == 1:
-            self.level = LEVELS[(LEVELS.index(self.level) + d) % 3]
+            self.level = LEVELS[(LEVELS.index(self.level) + d) % 4]
 
     def start(self):
         self.app.start_game(self.n_bots, self.level)

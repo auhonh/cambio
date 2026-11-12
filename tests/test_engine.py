@@ -266,7 +266,7 @@ def test_deck_reshuffles_and_forgets():
 @pytest.mark.parametrize("n", [2, 3, 4, 5])
 def test_bot_games_finish_and_conserve_cards(n):
     for seed in range(40):
-        g = play_game(n, seed, level=["easy", "medium", "hard"][seed % 3])
+        g = play_game(n, seed, level=["easy", "medium", "hard", "cambio"][seed % 4])
         cards = g.all_cards()
         assert len(cards) == 52 and len({c.id for c in cards}) == 52
         assert g.phase == Phase.GAME_OVER
@@ -283,3 +283,14 @@ def test_bot_never_jumps_in_with_its_own_red_king():
     g.hands[0][0] = C("KC")                          # but a black king of ours is fair game
     g.known[1].add(C("KC").id)
     assert Bot(1, "hard").wants_jump(g.view(1)) == (0, 0)
+
+    def test_expert_is_faster_than_hard():
+            from cambio.bot import LEVELS
+            hard, cambio = LEVELS["hard"], LEVELS["cambio"]
+            # even expert's slowest roll beats hard's fastest roll
+            assert cambio["react"][1] < hard["react"][0]
+            assert cambio["think"][1] < hard["think"][0]
+            assert cambio["settle"] < hard["settle"]
+            assert cambio["sleep_x"] < hard["sleep_x"]
+            # every level has a sane, ordered reaction range
+            assert all(0 < LEVELS[k]["react"][0] <= LEVELS[k]["react"][1] for k in LEVELS)

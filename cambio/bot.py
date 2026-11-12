@@ -17,12 +17,13 @@ from .engine import Phase, View
 # DEV KNOB: seconds the bot sleeps (time.sleep) right before each move it makes
 # on its turn. 0 = no extra pause. Raise it to slow the game down.
 BOT_SLEEP = 0.5
-
+_PACE = dict(think=(0.6, 1.0), settle=0.9, sleep_x=1.0, anim=None)
 LEVELS = {
     #          forget/turn  cambio total  max unknown own  jump reaction (s)
-    "easy":   dict(forget=0.12, cambio=7,  unknown_ok=2, react=(1.6, 3.2)),
-    "medium": dict(forget=0.04, cambio=9,  unknown_ok=1, react=(1.1, 2.4)),
-    "hard":   dict(forget=0.0,  cambio=11, unknown_ok=1, react=(0.8, 1.6)),
+    "easy":   dict(forget=0.12, cambio=7,  unknown_ok=2, react=(1.6, 3.2), **_PACE),
+    "medium": dict(forget=0.04, cambio=9,  unknown_ok=1, react=(1.1, 2.4), **_PACE),
+    "hard":   dict(forget=0.0,  cambio=11, unknown_ok=1, react=(0.8, 1.6), **_PACE),
+    "cambio": dict(forget=0.0, cambio=11, unknown_ok=1, react=(0.3, 0.7), think=(0.15, 0.35), settle=0.3, sleep_x=0.0, anim=1)
 }
 
 
@@ -71,6 +72,9 @@ class Bot:
 
     def reaction_delay(self) -> float:
         return self.rng.uniform(*self.cfg["react"])
+
+    def think_delay(self) -> float:
+        return self.rng.uniform(*self.cfg["think"])
 
     # --------------------------------------------------------------- choose
     def choose(self, v: View):
