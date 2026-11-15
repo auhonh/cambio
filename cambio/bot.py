@@ -14,7 +14,7 @@ from .actions import Pos
 from .cards import Card, card_from_id
 from .engine import Phase, View
 
-# DEV KNOB: seconds the bot sleeps (time.sleep) right before each move it makes
+# num of seconds the bot sleeps (time.sleep) right before each move it makes
 # on its turn. 0 = no extra pause. Raise it to slow the game down.
 BOT_SLEEP = 0.5
 
@@ -65,7 +65,7 @@ class Bot:
         top = v.discard[-1]
         hits = [pos for pos, c in self._mem(v).items()
                 if c.rank == top.rank and pos[0] != v.cambio_caller and v.occupied[pos[0]][pos[1]]
-                and not (pos[0] == self.pid and c.value < 0)]  # never throw away our own red king (-1)
+                and not (pos[0] == self.pid and c.value < 0)]  # never throw away own red king (-1)
         hits.sort(key=lambda p: p[0] != self.pid)
         return hits[0] if hits else None
 
