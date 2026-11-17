@@ -405,7 +405,7 @@ class GameScene:
                 pos = (o, s)
                 sp.lift_target = 7 if pos == self.float_slot else (4 if pos in self.sel else 0)
                 sp.glow = GOLD if pos in self.sel else (WHITE if self.flash.get(pos, 0) > 0 else None)
-        anim = 1.0 if g.current == 0 or g.phase == Phase.GAME_OVER else BOT_ANIM_SPEED
+        anim = 1.0 if g.current == 0 or g.phase == Phase.GAME_OVER else (self.bots[g.current].cfg["anim"] or BOT_ANIM_SPEED)
         for sp in self.sprites.values():
             sp.speed = anim
             sp.update(dt)
@@ -441,7 +441,7 @@ class GameScene:
                     self.try_jump(pos, pid)
         if g.current != self.last_current:
             self.last_current = g.current
-            self.bot_timer = 0.9
+            self.bot_timer = self.bots[g.current].cfg["settle"] if g.current in self.bots else 0.9
         if g.current == 0 or g.phase == Phase.GAME_OVER:
             return
         if self.busy():
@@ -449,9 +449,9 @@ class GameScene:
         self.bot_timer -= dt
         if self.bot_timer <= 0:
             bot = self.bots[g.current]
-            time.sleep(bot_module.BOT_SLEEP)
+            time.sleep(bot_module.BOT_SLEEP * bot.cfg["sleep_x"])
             self.submit(bot.choose(g.view(g.current)), g.current)
-            self.bot_timer = self.rng.uniform(0.6, 1.0)
+            self.bot_timer = bot.think_delay()
 
     # -------------------------------------------------------------- draw
     def prompt(self):
