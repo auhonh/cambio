@@ -425,6 +425,10 @@ class GameScene:
                 self.banner = None
         self.update_bots(dt)
 
+    def bot_pause(self, pid):
+        # non-blocking replacement for the old time.sleep before each bot move (it froze rendering)
+        return bot_module.BOT_SLEEP * self.bots[pid].cfg["sleep_x"]
+
     def busy(self):
         return any(sp.moving for sp in self.sprites.values())
 
@@ -441,17 +445,17 @@ class GameScene:
                     self.try_jump(pos, pid)
         if g.current != self.last_current:
             self.last_current = g.current
-            self.bot_timer = self.bots[g.current].cfg["settle"] if g.current in self.bots else 0.9
+            self.bot_timer = self.bots[g.current].cfg["settle"] + self.bot_pause(g.current) if g.current in self.bots else 0.9
         if g.current == 0 or g.phase == Phase.GAME_OVER:
             return
         if self.busy():
             return
         self.bot_timer -= dt
         if self.bot_timer <= 0:
-            bot = self.bots[g.current]
-            time.sleep(bot_module.BOT_SLEEP * bot.cfg["sleep_x"])
-            self.submit(bot.choose(g.view(g.current)), g.current)
-            self.bot_timer = bot.think_delay()
+            pid = g.current
+            bot = self.bots[pid]
+            self.submit(bot.choose(g.view(pid)), pid)
+            self.bot_timer = bot.think_delay() + self.bot_pause(pid)
 
     # -------------------------------------------------------------- draw
     def prompt(self):
