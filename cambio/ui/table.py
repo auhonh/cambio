@@ -104,11 +104,16 @@ class GameScene:
         for slot in range(4):
             for o in range(self.n):
                 c = self.g.hands[o][slot]
+                if c is None:
+                    raise RuntimeError("invalid slot")
                 sp = self.sprite(c)
                 sp.delay = 0.35 + 0.07 * k
                 k += 1
         for slot in (1, 3):  # starting peek stays face up until READY
-            self.reveal[self.g.hands[0][slot].id] = 1e9
+            card = self.g.hands[0][slot]
+            if card is None:
+                raise RuntimeError("invalid hands")
+            self.reveal[card.id] = 1e9
 
     def sprite(self, c: Card) -> CardSprite:
         sp = self.sprites.get(c.id)
@@ -409,11 +414,17 @@ class GameScene:
         for sp in self.sprites.values():
             sp.speed = anim
             sp.update(dt)
-        for d in (self.reveal, self.flash):
-            for k in list(d):
-                d[k] -= dt
-                if d[k] <= 0:
-                    del d[k]
+        
+        for card_id in list(self.reveal):
+            self.reveal[card_id] -= dt
+            if self.reveal[card_id] <= 0:
+                del self.reveal[card_id]
+
+        for pos in list(self.flash):
+            self.flash[pos] -= dt
+            if self.flash[pos] <= 0:
+                del self.flash[pos]
+
         for tt in self.toasts:
             tt[3] -= 14 * dt
             tt[4] -= dt
@@ -522,6 +533,8 @@ class GameScene:
         over = g.phase == Phase.GAME_OVER
         scores = g.scores() if over else None
         winners = g.winners() if over else []
+        if scores is None:
+            return RuntimeError
         for pid in range(self.n):
             cx, cy = self.seat_center(pid)
             cols = max(2, math.ceil(len(g.hands[pid]) / 2))

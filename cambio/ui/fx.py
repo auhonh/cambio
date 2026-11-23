@@ -84,7 +84,7 @@ class CardSprite:
         self.rot_target = 0.0  # resting angle
         self.rot = 0.0
         self.phase = phase if phase is not None else random.random() * math.tau
-        self.glow = None       # outline colour
+        self.glow : tuple[int,int,int] |None = None       # outline colour
         self.delay = 0.0       # seconds before this card starts moving (deal stagger)
         self.moving = False
         self.speed = 1.0       # animation speed multiplier (<1 = slower)

@@ -117,6 +117,10 @@ class Bot:
         h = v.held
         if not own:  # every card already jumped away
             return A.Discard()
+
+        if h is None:
+            raise ValueError("phase requires a held card")
+
         best = max(own, key=lambda p: self._est(p, mem, mean) - h.value)
         gain = self._est(best, mem, mean) - h.value
         if v.held_from == "discard" or gain >= 2:
@@ -168,6 +172,9 @@ class Bot:
         return A.QueenLook(mine[1], theirs)
 
     def _queen_decide(self, v: View):
+        if v.queen_pair is None:
+            return A.QueenDecide(False)
+
         a, b = v.queen_pair
         ca, cb = v.known.get(a), v.known.get(b)
         if ca is None or cb is None:
