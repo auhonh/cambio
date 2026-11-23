@@ -4,11 +4,25 @@ Cambio card game vs 1-4 bots. (definitely not stolen balatro ui)
 
 ## Run
 
-```
+```sh
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/python main.py
 ```
+
+### Nix
+
+```sh
+nix run .
+
+#Pass in options with
+nix run . --{options}
+
+#Persistent command
+nix profile add .
+cambio
+```
+
 
 Options: `--bots 1-4`, `--difficulty easy|medium|hard|cambio`, `--start` (skip the menu).
 
