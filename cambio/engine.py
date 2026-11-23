@@ -78,7 +78,10 @@ class Game:
         self.known: list[set[int]] = [set() for _ in range(n_players)]
         for pid in range(n_players):
             for slot in INITIAL_PEEK_SLOTS:
-                self.known[pid].add(self.hands[pid][slot].id)
+                card = self.hands[pid][slot]
+                if card is None:
+                    raise ValueError("no id for this card")
+                self.known[pid].add(card.id)
         self.current = self.rng.randrange(n_players)
         self.phase = Phase.PEEK
         self.held: Optional[Card] = None
@@ -259,6 +262,8 @@ class Game:
                 return self._end_turn()
             if isinstance(action, A.LookSelf) and self._card((pid, action.slot)):
                 c = self.hands[pid][action.slot]
+                if c is None:
+                    raise ValueError("error with slot")
                 self.known[pid].add(c.id)
                 self._emit("look", pid, owner=pid, slot=action.slot, card=c)
                 return self._end_turn()
@@ -268,6 +273,8 @@ class Game:
                 return self._end_turn()
             if isinstance(action, A.LookOpp) and action.owner != pid and self._card((action.owner, action.slot)):
                 c = self.hands[action.owner][action.slot]
+                if c is None:
+                    raise ValueError("error with slot")
                 self.known[pid].add(c.id)
                 self._emit("look", pid, owner=action.owner, slot=action.slot, card=c)
                 return self._end_turn()
@@ -287,20 +294,31 @@ class Game:
                 return self._end_turn()
             if isinstance(action, A.QueenLook):
                 a, b = (pid, action.own_slot), action.opp
-                if self._card(a) and b[0] != pid and self._targetable(b):
-                    self.known[pid].add(self._card(a).id)
-                    self.known[pid].add(self._card(b).id)
+                own_card = self._card(a)
+                opp_card = self._card(b)
+                if (own_card is not None 
+                    and b[0] != pid 
+                    and opp_card is not None 
+                    and self._targetable(b)):
+                    self.known[pid].add(own_card.id)
+                    self.known[pid].add(opp_card.id)
                     self.queen_pair = (a, b)
-                    self._queen_ids = (self._card(a).id, self._card(b).id)
+                    self._queen_ids = (own_card.id, opp_card.id)
                     self.phase = Phase.QUEEN_DECIDE
                     self._emit("queen_look", pid, own=a, opp=b, cards=(self._card(a), self._card(b)))
                     return
         elif ph == Phase.QUEEN_DECIDE:
             if isinstance(action, A.QueenDecide):
-                a, b = self.queen_pair
+                pair = self.queen_pair
+                if pair is None:
+                    raise RuntimeError("no queen pairs!")
+                a, b = pair
                 # a jump-in may have replaced one of the looked-at cards meanwhile: then don't swap
-                same = (self._card(a) and self._card(a).id) == self._queen_ids[0] and \
-                       (self._card(b) and self._card(b).id) == self._queen_ids[1]
+                ca, cb = self._card(a), self._card(b)
+                same = ( ca is not None and cb is not None
+                        and ca.id == self._queen_ids[0]
+                        and cb.id == self._queen_ids[1])
+
                 if action.swap and same and self._targetable(a) and self._targetable(b):
                     self._swap_positions(a, b)
                     self._emit("queen_swap", pid, a=a, b=b)
@@ -343,6 +361,8 @@ class Game:
 
     def _do_holding(self, pid: int, action) -> None:
         card = self.held
+        if card is None:
+            raise RuntimeError("holding nothing")
         if isinstance(action, A.Swap):
             old = self._card((pid, action.slot))
             if old is None:
